@@ -1,0 +1,18 @@
+{
+  "name": "qa-agent",
+  "version": "1.0.0",
+  "description": "Automated AI smoke test agent for LevCharity client sites",
+  "main": "scripts/smoke-test.js",
+  "scripts": {
+    "test": "node scripts/smoke-test.js",
+    "test:site": "node scripts/smoke-test.js --site"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.20.0",
+    "playwright": "^1.42.0",
+    "node-fetch": "^3.3.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
