@@ -138,6 +138,104 @@ const CHECK_FOOTER = `(() => {
   return { pass: hasText || links > 0, linkCount: links, hasText };
 })()`;
 
+// ── Header visual integrity (desktop) ─────────────────────────────────────
+// Detects: search bar cut off, elements outside viewport, content overlapping header
+const CHECK_HEADER_VISUAL = `(() => {
+  const header = document.querySelector('header, [class*="elementor-location-header"], [class*="site-header"]');
+  if (!header) return { pass: true, detail: 'No header (donation-only page — expected)' };
+  const vw = window.innerWidth;
+  const headerRect = header.getBoundingClientRect();
+  const cutOff = Array.from(header.querySelectorAll('a, button, input, img, [class*="logo"]')).filter(el => {
+    const r = el.getBoundingClientRect();
+    return r.width > 20 && r.height > 5 && r.right > vw + 15;
+  }).map(el => (el.tagName + (el.className ? '.' + el.className.split(' ')[0] : '')).slice(0, 30));
+  const searches = Array.from(document.querySelectorAll('input[type="search"], input[placeholder*="Search"], input[placeholder*="Find"]'));
+  const searchCutOff = searches.filter(inp => {
+    const r = inp.getBoundingClientRect();
+    return r.width > 0 && (r.right > vw + 8 || r.left < -8);
+  }).length;
+  const main = document.querySelector('main, .wp-site-blocks, [class*="content-area"], article, section');
+  const contentOverlap = main ? main.getBoundingClientRect().top < headerRect.bottom - 15 : false;
+  const pass = cutOff.length === 0 && searchCutOff === 0 && !contentOverlap;
+  return {
+    pass, headerHeight: Math.round(headerRect.height),
+    cutOffElements: cutOff.slice(0, 3), searchCutOff, contentOverlap,
+    detail: !pass ? (cutOff.length ? 'Cut off: ' + cutOff.slice(0,2).join(', ') : searchCutOff ? 'Search bar cut off' : 'Content overlaps header') : 'Header OK'
+  };
+})()`;
+
+// ── Reusable search bar interactive test ───────────────────────────────────
+async function testSearchBar(page, searchTerm, linkSelector, label) {
+  try {
+    const inp = page.locator('input[type="search"], input[placeholder*="Search"], input[placeholder*="Find"]').first();
+    if (!await inp.isVisible({ timeout: 3000 }).catch(() => false))
+      return { name: label, pass: false, detail: 'Search input not visible' };
+    const before = await page.evaluate(s => document.querySelectorAll(s).length, linkSelector);
+    await inp.fill(searchTerm);
+    await page.waitForTimeout(2500);
+    const after = await page.evaluate(s => document.querySelectorAll(s).length, linkSelector);
+    await inp.fill('');
+    await page.waitForTimeout(800);
+    return { name: label, pass: true, detail: `"${searchTerm}": ${after} results (was ${before})` };
+  } catch(e) { return { name: label, pass: false, detail: 'Error: ' + e.message.slice(0, 50) }; }
+}
+
+// ── Mobile test runner — opens new iPhone context ──────────────────────────
+async function runMobileChecks(browser, url) {
+  const out = [];
+  let ctx;
+  try {
+    ctx = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+      isMobile: true, hasTouch: true, locale: 'en-US',
+    });
+    const p = await ctx.newPage();
+    await p.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); });
+    await p.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await p.waitForLoadState('networkidle', { timeout: 10000 }); } catch {}
+    await p.waitForTimeout(2000);
+
+    const m = await p.evaluate(`(() => {
+      const vw = window.innerWidth;
+      const scrollW = document.documentElement.scrollWidth;
+      const horizScroll = scrollW > vw + 5;
+      const header = document.querySelector('header, [class*="elementor-location-header"]');
+      const headerOk = header ? (() => { const r = header.getBoundingClientRect(); return r.height > 10 && r.right <= vw + 10; })() : true;
+      const logo = document.querySelector('img.custom-logo, header img, nav img, [class*="header"] img, [class*="logo"] img');
+      const logoOk = logo ? (() => { const r = logo.getBoundingClientRect(); return r.width > 0 && r.right <= vw + 5; })() : false;
+      const toggle = document.querySelector('.wp-block-navigation__responsive-container-open, [class*="hamburger"], [class*="menu-toggle"], [class*="nav-toggle"], button[aria-label*="enu"]');
+      const toggleOk = toggle ? (() => { const r = toggle.getBoundingClientRect(); return r.width > 10 && r.height > 10; })() : null;
+      const search = document.querySelector('input[type="search"], input[placeholder*="Search"], input[placeholder*="Find"]');
+      const searchOk = search ? (() => { const r = search.getBoundingClientRect(); if (!r.width) return true; return r.right <= vw + 5 && r.left >= -5; })() : null;
+      const tinyBtns = Array.from(document.querySelectorAll('button, a.button, .btn, input[type="submit"]')).filter(b => { const r = b.getBoundingClientRect(); return r.width > 20 && r.height > 0 && r.height < 32; }).length;
+      return { horizScroll, scrollW, vw, headerOk, logoOk, toggleFound: !!toggle, toggleOk, searchOk, tinyBtns };
+    })()`);
+
+    out.push({ name: '[Mobile 390px] No horizontal scroll',           pass: !m.horizScroll,      detail: m.horizScroll ? m.scrollW + 'px content in ' + m.vw + 'px viewport' : 'OK' });
+    out.push({ name: '[Mobile 390px] Header fits within viewport',    pass: m.headerOk,           detail: m.headerOk ? 'OK' : 'Header overflows viewport' });
+    out.push({ name: '[Mobile 390px] Logo visible and not cut off',   pass: m.logoOk,             detail: m.logoOk ? 'Visible' : 'Logo hidden or cut off' });
+    if (m.toggleFound !== null)
+      out.push({ name: '[Mobile 390px] Nav toggle/hamburger accessible', pass: !!m.toggleOk,     detail: m.toggleFound ? (m.toggleOk ? 'Tappable' : 'Found but too small') : 'Not found' });
+    if (m.searchOk !== null)
+      out.push({ name: '[Mobile 390px] Search bar accessible / not cut off', pass: m.searchOk !== false, detail: m.searchOk ? 'OK' : 'Search cut off on mobile' });
+    if (m.tinyBtns > 0)
+      out.push({ name: '[Mobile 390px] Buttons are tap-friendly (≥32px)', pass: false, detail: m.tinyBtns + ' buttons below min tap height' });
+
+    // Mobile screenshot
+    try {
+      const ss = await p.screenshot({ type: 'jpeg', quality: 40, fullPage: false });
+      out.push({ name: '[Mobile 390px] Screenshot', pass: true, detail: 'Mobile layout captured', screenshot: ss.toString('base64') });
+    } catch {}
+
+    await ctx.close();
+  } catch(e) {
+    if (ctx) await ctx.close().catch(() => {});
+    out.push({ name: '[Mobile 390px] Mobile test error', pass: false, detail: e.message.slice(0, 80) });
+  }
+  return out;
+}
+
 // ─────────────────────────────────────────────────────────────────
 // SITES
 // ─────────────────────────────────────────────────────────────────
@@ -172,7 +270,7 @@ const SITE_CHECKS = {
   //        /ecards, /event, /event/{slug}
   // NOTE: VPN/geolocation, actual checkout completion, hover-triggered CSS, and
   //       account signup flows require MANUAL testing — flagged in check names below.
-  uh: async (page) => {
+  uh: async (page, site, browser) => {
     const results = [];
 
     // ══ 1. HOMEPAGE — logo check before any navigation ══
@@ -487,12 +585,23 @@ const SITE_CHECKS = {
     results.push({ name: '[Event Page] ⚠ MANUAL: Single/Multi event ticket selection → checkout', pass: true,                                             detail: 'Select ticket qty, proceed to checkout, verify attendee + price data' });
     results.push({ name: '[Event Page] ⚠ MANUAL: Advanced event — Sponsorship/EventAds/Tickets', pass: true,                                              detail: 'Verify all 3 sections load; add combination to cart; check checkout' });
 
+    // ── UH desktop header visual (on homepage which is still loaded) ──
+    await page.goto('https://israelrescue.org', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+    await page.waitForTimeout(1500);
+    const hvUH = await page.evaluate(CHECK_HEADER_VISUAL);
+    results.push({ name: '[Desktop] Header visual integrity', pass: hvUH.pass, detail: hvUH.detail });
+
+    // ── UH mobile checks ──
+    const mobUH = await runMobileChecks(browser, 'https://israelrescue.org');
+    mobUH.forEach(c => results.push(c));
+
     return results;
   },
 
   // ── Pantry Packers ───────────────────────────────────────────────
   // img.custom-logo w:164, nav: Donate/eCards/Campaigns, CTA: "Start your campaign"
-  pantry: async (page) => {
+  pantry: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -504,6 +613,10 @@ const SITE_CHECKS = {
       hasDonate:    Array.from(document.querySelectorAll('a,button')).some(b => /^donate$/i.test(b.innerText?.trim())),
       donateHref:   Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
     }));
+
+    // ── Header visual + mobile checks ──
+    const hv_pantry = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_pantry = await runMobileChecks(browser, 'https://give.pantrypackers.org/');
     return [
       { name: 'Logo visible and loaded',        pass: logo.pass,           detail: logo.detail },
       { name: 'No broken images',               pass: broken.pass,         detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -513,13 +626,16 @@ const SITE_CHECKS = {
       { name: '"Campaigns" section present',    pass: checks.hasCampaigns, detail: checks.hasCampaigns ? 'Found' : 'Missing' },
       { name: '"Start your campaign" CTA',      pass: checks.hasStartCTA,  detail: checks.hasStartCTA ? 'Found' : 'Missing' },
       { name: 'Donate button has valid href',   pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_pantry.pass,  detail: hv_pantry.detail },
+      ...mob_pantry,
     ];
   },
 
   // ── Israelthon ───────────────────────────────────────────────────
   // img.custom-logo w:320, nav: About us/Raisers/Teams/Merch/Contact, footer: address+phone
   // CTAs: "BECOME A RAISER" + "DONATE NOW", Total Raised widget
-  israelthon: async (page) => {
+  israelthon: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -532,6 +648,12 @@ const SITE_CHECKS = {
       donateHref:     Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
       hasAddress:     (document.body?.innerText||'').includes('Lakewood') || (document.body?.innerText||'').includes('NJ') || (document.body?.innerText||'').includes('646'),
     }));
+
+    // ── Header visual + mobile checks ──
+    const hv_israelthon = await page.evaluate(CHECK_HEADER_VISUAL);
+    // Search bar interactive test
+    const searchResult_israelthon = await testSearchBar(page, 'Sara', 'a[href*="raiser"], a[href*="team"]', '[Search] Israelthon search filters results');
+    const mob_israelthon = await runMobileChecks(browser, 'https://israelthon.org/');
     return [
       { name: 'Logo visible and loaded',           pass: logo.pass,                  detail: logo.detail },
       { name: 'No broken images',                  pass: broken.pass,                detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -543,13 +665,17 @@ const SITE_CHECKS = {
       { name: '"Become a Raiser" button present',  pass: checks.hasBecomeRaiser,     detail: checks.hasBecomeRaiser ? 'Found' : 'Missing' },
       { name: '"Total Raised" widget visible',     pass: checks.hasTotalRaised,      detail: checks.hasTotalRaised ? 'Found' : 'Missing' },
       { name: 'Donate button has valid href',      pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_israelthon.pass,  detail: hv_israelthon.detail },
+      searchResult_israelthon,
+      ...mob_israelthon,
     ];
   },
 
   // ── Yorkville Jewish Centre ──────────────────────────────────────
   // Donation-only page. img.custom-logo (alt:"Donate"). Minimal nav (just "Back to..." link).
   // C$ amounts, Give once/Monthly toggle. No footer links — this is expected.
-  yorkville: async (page) => {
+  yorkville: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const checks = await page.evaluate(() => ({
@@ -560,6 +686,10 @@ const SITE_CHECKS = {
       hasForm:      document.querySelectorAll('input[type="radio"], input[type="text"], input[type="number"]').length > 0,
       formEnabled:  Array.from(document.querySelectorAll('input')).filter(i=>!i.disabled).length,
     }));
+
+    // ── Header visual + mobile checks ──
+    const hv_yorkville = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_yorkville = await runMobileChecks(browser, 'https://donate.yorkvillejewishcentre.com/');
     return [
       { name: 'Logo visible and loaded',           pass: logo.pass,          detail: logo.detail },
       { name: 'No broken images',                  pass: broken.pass,        detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -568,12 +698,15 @@ const SITE_CHECKS = {
       { name: '"Give once" / "Monthly" toggle',    pass: checks.hasToggle,   detail: checks.hasToggle ? 'Found' : 'Missing' },
       { name: 'Donation form inputs present',      pass: checks.hasForm,     detail: checks.hasForm ? 'Found' : 'Missing' },
       { name: 'Form inputs are enabled',           pass: checks.formEnabled > 0, detail: `${checks.formEnabled} enabled` },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_yorkville.pass,  detail: hv_yorkville.detail },
+      ...mob_yorkville,
     ];
   },
 
   // ── Chaiathon ────────────────────────────────────────────────────
   // img.custom-logo (alt:"Chaiathon"), WP Gutenberg nav, search bar, stats widget
-  chaiathon: async (page) => {
+  chaiathon: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -585,6 +718,12 @@ const SITE_CHECKS = {
       hasOrderKit:  (document.body?.innerText||'').includes('Order') && ((document.body?.innerText||'').includes('Kit') || (document.body?.innerText||'').includes('kit')),
       donateHref:   Array.from(document.querySelectorAll('a,button')).find(b => /^donate$/i.test(b.innerText?.trim()))?.href || null,
     }));
+
+    // ── Header visual + mobile checks ──
+    const hv_chaiathon = await page.evaluate(CHECK_HEADER_VISUAL);
+    // Search bar interactive test
+    const searchResult_chaiathon = await testSearchBar(page, 'Israel', 'a[href*="mymitzvah/"], a[href*="fundraiser"]', '[Search] Chaiathon search filters results');
+    const mob_chaiathon = await runMobileChecks(browser, 'https://chaiathon.org');
     return [
       { name: 'Logo visible and loaded',         pass: logo.pass,                                      detail: logo.detail },
       { name: 'No broken images',                pass: broken.pass,                                    detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -597,12 +736,16 @@ const SITE_CHECKS = {
       { name: 'Campaign stats widget loads',     pass: checks.hasStats,                                detail: checks.hasStats ? 'Found' : 'Missing' },
       { name: '"Order your Kit" CTA',            pass: checks.hasOrderKit,                             detail: checks.hasOrderKit ? 'Found' : 'Missing' },
       { name: 'Donate button has valid href',    pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_chaiathon.pass,  detail: hv_chaiathon.detail },
+      searchResult_chaiathon,
+      ...mob_chaiathon,
     ];
   },
 
   // ── Chai Lifeline USA (FCL) ──────────────────────────────────────
   // img.custom-logo, "Learn More About Chai Lifeline", campaign cards
-  fcl: async (page) => {
+  fcl: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -612,6 +755,10 @@ const SITE_CHECKS = {
       hasCards:     !!(document.querySelector('[class*="card"], [class*="Card"], article')),
       donateHref:   Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
     }));
+
+    // ── Header visual + mobile checks ──
+    const hv_fcl = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_fcl = await runMobileChecks(browser, 'https://fundraise.chailifeline.org');
     return [
       { name: 'Logo visible and loaded',        pass: logo.pass,           detail: logo.detail },
       { name: 'No broken images',               pass: broken.pass,         detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -620,12 +767,15 @@ const SITE_CHECKS = {
       { name: '"Learn More" button present',    pass: checks.hasLearnMore, detail: checks.hasLearnMore ? 'Found' : 'Missing' },
       { name: 'Campaign cards visible',         pass: checks.hasCards,     detail: checks.hasCards ? 'Found' : 'Missing' },
       { name: 'Donate button has valid href',   pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_fcl.pass,  detail: hv_fcl.detail },
+      ...mob_fcl,
     ];
   },
 
   // ── Chai Lifeline Canada (CLC) ───────────────────────────────────
   // img.custom-logo, "Ways to Give" nav, Login/Sign Up, donation form C$
-  clc: async (page) => {
+  clc: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -637,6 +787,10 @@ const SITE_CHECKS = {
       hasAmounts:    (document.body?.innerText||'').includes('C$') || (document.body?.innerText||'').includes('Give once') || (document.body?.innerText||'').includes('Monthly'),
       hasForm:       document.querySelectorAll('input[type="radio"], input[type="text"], input[type="number"]').length > 0,
     }));
+
+    // ── Header visual + mobile checks ──
+    const hv_clc = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_clc = await runMobileChecks(browser, 'https://fundraise.chailifelinecanada.org');
     return [
       { name: 'Logo visible and loaded',          pass: logo.pass,            detail: logo.detail },
       { name: 'No broken images',                 pass: broken.pass,          detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -646,6 +800,9 @@ const SITE_CHECKS = {
       { name: '"Login" button present',           pass: checks.hasLogin,      detail: checks.hasLogin ? 'Found' : 'Missing' },
       { name: 'Donation amounts visible',         pass: checks.hasAmounts,    detail: checks.hasAmounts ? 'Found' : 'Missing' },
       { name: 'Donation form inputs present',     pass: checks.hasForm,       detail: checks.hasForm ? 'Found' : 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_clc.pass,  detail: hv_clc.detail },
+      ...mob_clc,
     ];
   },
 
@@ -653,7 +810,7 @@ const SITE_CHECKS = {
   // LevCharity P2P platform. Logo is afdma-logo.svg (SVG — naturalWidth=0 is expected, check complete).
   // Nav: "Sign up to fundraise" + "Log In". Campaign cards grid. "Start your campaign" CTA.
   // "About Magen David Adom" section. Footer: powered-by-levcharity.svg.
-  afmda: async (page) => {
+  afmda: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO); // SVG-aware now
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -671,6 +828,10 @@ const SITE_CHECKS = {
         imgCount:             document.querySelectorAll('img').length,
       };
     });
+
+    // ── Header visual + mobile checks ──
+    const hv_afmda = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_afmda = await runMobileChecks(browser, 'https://crowdfund.afmda.org');
     return [
       { name: 'Logo visible and loaded (SVG)',      pass: logo.pass,                    detail: logo.detail },
       { name: 'No broken images',                   pass: broken.pass,                  detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -681,13 +842,16 @@ const SITE_CHECKS = {
       { name: 'Campaign cards visible',             pass: checks.hasCampaignCards,      detail: checks.hasCampaignCards ? 'Found' : 'Missing' },
       { name: '"About Magen David Adom" section',   pass: checks.hasAboutSection,       detail: checks.hasAboutSection ? 'Found' : 'Missing' },
       { name: 'Campaign link has valid href',       pass: !!(checks.campaignHref && checks.campaignHref.length > 5), detail: checks.campaignHref?.slice(0,50) || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_afmda.pass,  detail: hv_afmda.detail },
+      ...mob_afmda,
     ];
   },
 
   // ── Misaskim ─────────────────────────────────────────────────────
   // Elementor site — logo NOT img.custom-logo (uses wp-image class in header)
   // Footer is elementor-location-footer with 11 links. Nav: Shiva Listings/Resources/Contact/Services
-  misaskim: async (page) => {
+  misaskim: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO); // CHECK_LOGO now handles Elementor headers
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -703,6 +867,10 @@ const SITE_CHECKS = {
         hasOurMission:(document.body?.innerText||'').includes('Our Mission') || (document.body?.innerText||'').includes('mission'),
       };
     });
+
+    // ── Header visual + mobile checks ──
+    const hv_misaskim = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_misaskim = await runMobileChecks(browser, 'https://misaskim.ca');
     return [
       { name: 'Logo visible and loaded',        pass: logo.pass,            detail: logo.detail },
       { name: 'No broken images',               pass: broken.pass,          detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -713,13 +881,16 @@ const SITE_CHECKS = {
       { name: '"Donate Now" button present',    pass: checks.hasDonate,     detail: checks.hasDonate ? 'Found' : 'Missing' },
       { name: 'Donate button has valid href',   pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
       { name: 'Mission content visible',        pass: checks.hasOurMission, detail: checks.hasOurMission ? 'Found' : 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_misaskim.pass,  detail: hv_misaskim.detail },
+      ...mob_misaskim,
     ];
   },
 
   // ── Shomrim Toronto ──────────────────────────────────────────────
   // Elementor site. No <nav> tag — header is div.elementor-location-header with 32 links.
   // Real footer is elementor-location-footer. Cookie wrapper .cky-footer-wrapper is excluded.
-  shomrim: async (page) => {
+  shomrim: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS); // handles Elementor
@@ -735,6 +906,10 @@ const SITE_CHECKS = {
         hasVolunteer: allLinks.some(t => t.includes('volunteer')),
       };
     });
+
+    // ── Header visual + mobile checks ──
+    const hv_shomrim = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_shomrim = await runMobileChecks(browser, 'https://shomrimtoronto.org');
     return [
       { name: 'Logo visible and loaded',              pass: logo.pass,                                          detail: logo.detail },
       { name: 'No broken images',                     pass: broken.pass,                                        detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -744,12 +919,15 @@ const SITE_CHECKS = {
       { name: '"File an incident" button exists',     pass: checks.hasIncident,                                 detail: checks.hasIncident ? 'Found' : 'Missing' },
       { name: '"File an incident" has valid href',    pass: !!(checks.incidentHref && checks.incidentHref.length > 10), detail: checks.incidentHref || 'Missing' },
       { name: '"Donate" link present',                pass: checks.hasDonate,                                   detail: checks.hasDonate ? 'Found' : 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_shomrim.pass,  detail: hv_shomrim.detail },
+      ...mob_shomrim,
     ];
   },
 
   // ── Fallen Heroes ────────────────────────────────────────────────
   // Custom WP, logo in header, donation amounts $180/$360, custom amount, dedication
-  fallen: async (page) => {
+  fallen: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -764,6 +942,10 @@ const SITE_CHECKS = {
         donateHref:   Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
       };
     });
+
+    // ── Header visual + mobile checks ──
+    const hv_fallen = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_fallen = await runMobileChecks(browser, 'https://fallenh.org');
     return [
       { name: 'Logo visible and loaded',            pass: logo.pass,            detail: logo.detail },
       { name: 'No broken images',                   pass: broken.pass,          detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -774,6 +956,9 @@ const SITE_CHECKS = {
       { name: 'Dedication option',                  pass: checks.hasDedicated,  detail: checks.hasDedicated ? 'Found' : 'Missing' },
       { name: '"Fundraising Campaigns" link',       pass: checks.hasCampaigns,  detail: checks.hasCampaigns ? 'Found' : 'Missing' },
       { name: 'Donate button has valid href',       pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_fallen.pass,  detail: hv_fallen.detail },
+      ...mob_fallen,
     ];
   },
 
@@ -781,7 +966,7 @@ const SITE_CHECKS = {
   // Member portal. img.custom-logo (SVG — but naturalWidth=194 so it loads fine).
   // No <nav> tag, no footer links — this is EXPECTED for a member portal.
   // Key buttons: Become a Member, Amutah Payment, Events, Sponsorships, General Donations, Donate
-  nitzanim: async (page) => {
+  nitzanim: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const checks = await page.evaluate(() => {
@@ -796,6 +981,10 @@ const SITE_CHECKS = {
         hasWelcome:   (document.body?.innerText||'').includes('Welcome') || (document.body?.innerText||'').includes('Kehilat'),
       };
     });
+
+    // ── Header visual + mobile checks ──
+    const hv_nitzanim = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_nitzanim = await runMobileChecks(browser, 'https://members.kehilatnitzanim.org/');
     return [
       { name: 'Logo visible and loaded',             pass: logo.pass,               detail: logo.detail },
       { name: 'No broken images',                    pass: broken.pass,             detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -805,12 +994,15 @@ const SITE_CHECKS = {
       { name: '"Sponsorships" button present',       pass: checks.hasSponsorship,   detail: checks.hasSponsorship ? 'Found' : 'Missing' },
       { name: '"Donate" button present',             pass: checks.hasDonate,        detail: checks.hasDonate ? 'Found' : 'Missing' },
       { name: 'Donate button has valid href',        pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_nitzanim.pass,  detail: hv_nitzanim.detail },
+      ...mob_nitzanim,
     ];
   },
 
   // ── Israel Magen Fund ────────────────────────────────────────────
   // Standard WP. logo in header. "DONATE NOW", "Become a Fundraiser", "Our Impact"
-  imf: async (page) => {
+  imf: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -821,6 +1013,10 @@ const SITE_CHECKS = {
       hasProjects:       (document.body?.innerText||'').toLowerCase().includes('project'),
       donateHref:        Array.from(document.querySelectorAll('a,button')).find(b => /donate now/i.test(b.innerText))?.href || Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
     }));
+
+    // ── Header visual + mobile checks ──
+    const hv_imf = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_imf = await runMobileChecks(browser, 'https://israelmagenfund.org/');
     return [
       { name: 'Logo visible and loaded',             pass: logo.pass,                 detail: logo.detail },
       { name: 'No broken images',                    pass: broken.pass,               detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -829,6 +1025,9 @@ const SITE_CHECKS = {
       { name: '"Become a Fundraiser" link',          pass: checks.hasFundraiserLink,  detail: checks.hasFundraiserLink ? 'Found' : 'Missing' },
       { name: '"Our Impact" section visible',        pass: checks.hasImpact,          detail: checks.hasImpact ? 'Found' : 'Missing' },
       { name: '"Donate Now" button has valid href',  pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_imf.pass,  detail: hv_imf.detail },
+      ...mob_imf,
     ];
   },
 
@@ -837,7 +1036,7 @@ const SITE_CHECKS = {
   // CHECK_LOGO handles this via the header img fallback.
   // Nav: About/Services/Centers/Ways to Give/News/Contact/Ability Boutique/Ecards/Donate
   // Footer: 57 links. Donate → /donate/
-  adi: async (page) => {
+  adi: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -854,6 +1053,12 @@ const SITE_CHECKS = {
         hasHero:       (document.body?.innerText||'').includes('Humanity') || (document.body?.innerText||'').includes('Healing') || (document.body?.innerText||'').includes('Hope'),
       };
     });
+
+    // ── Header visual + mobile checks ──
+    const hv_adi = await page.evaluate(CHECK_HEADER_VISUAL);
+    // Search bar interactive test (ADI has search icon in top nav)
+    const searchResult_adi = await testSearchBar(page, 'center', 'a[href]', '[Search] ADI search responds to input');
+    const mob_adi = await runMobileChecks(browser, 'https://adi-il.org/');
     return [
       { name: 'Logo visible and loaded',        pass: logo.pass,               detail: logo.detail },
       { name: 'No broken images',               pass: broken.pass,             detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -864,13 +1069,17 @@ const SITE_CHECKS = {
       { name: '"Centers" nav item',             pass: checks.hasCenters,       detail: checks.hasCenters ? 'Found' : 'Missing' },
       { name: 'Hero headline visible',          pass: checks.hasHero,          detail: checks.hasHero ? 'Found' : 'Missing' },
       { name: '"Donate" button has valid href', pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_adi.pass,  detail: hv_adi.detail },
+      searchResult_adi,
+      ...mob_adi,
     ];
   },
 
   // ── The Yeshiva ──────────────────────────────────────────────────
   // Donation page only. Lazy images excluded from broken check.
   // Tiers: $1,000 / $500 / $360 / $250. Give once/Monthly toggle.
-  yeshiva: async (page) => {
+  yeshiva: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES); // lazy excluded
     const footer = await page.evaluate(CHECK_FOOTER);
@@ -880,6 +1089,10 @@ const SITE_CHECKS = {
       hasBackBtn:  Array.from(document.querySelectorAll('a,button')).some(b => /back to home/i.test(b.innerText)),
       formInputs:  Array.from(document.querySelectorAll('input[type="radio"],input[type="text"],input[type="email"]')).filter(i=>!i.disabled).length,
     }));
+
+    // ── Header visual + mobile checks ──
+    const hv_yeshiva = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_yeshiva = await runMobileChecks(browser, 'https://donate.theyeshiva.net');
     return [
       { name: 'Logo visible and loaded',          pass: logo.pass,             detail: logo.detail },
       { name: 'No broken images (lazy excluded)', pass: broken.pass,           detail: broken.pass ? `${broken.total} imgs checked` : `Broken: ${broken.broken.join(', ')}` },
@@ -888,13 +1101,16 @@ const SITE_CHECKS = {
       { name: 'Donation tiers visible',           pass: checks.hasTiers,       detail: checks.hasTiers ? 'Found' : 'Missing' },
       { name: '"Give once" / "Monthly" toggle',   pass: checks.hasToggle,      detail: checks.hasToggle ? 'Found' : 'Missing' },
       { name: 'Form inputs enabled',              pass: checks.formInputs > 0, detail: `${checks.formInputs} enabled` },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_yeshiva.pass,  detail: hv_yeshiva.detail },
+      ...mob_yeshiva,
     ];
   },
 
   // ── Nahal Haredi ─────────────────────────────────────────────────
   // img.custom-logo. Nav: About Us/Campaigns/eCards/Crowdfunding/Day of Torah/Ways to Support
   // Donation amounts start at $18. Form inputs present.
-  nahal: async (page) => {
+  nahal: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -911,6 +1127,12 @@ const SITE_CHECKS = {
         donateHref:   Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
       };
     });
+
+    // ── Header visual + mobile checks ──
+    const hv_nahal = await page.evaluate(CHECK_HEADER_VISUAL);
+    // Search bar interactive test
+    const searchResult_nahal = await testSearchBar(page, 'campaign', 'a[href*="campaign"], a[href*="fundraiser"]', '[Search] Nahal search filters results');
+    const mob_nahal = await runMobileChecks(browser, 'https://give.nahalharedi.org/');
     return [
       { name: 'Logo visible and loaded',       pass: logo.pass,              detail: logo.detail },
       { name: 'No broken images',              pass: broken.pass,            detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -922,13 +1144,17 @@ const SITE_CHECKS = {
       { name: '"Give once" / "Monthly"',       pass: checks.hasToggle,       detail: checks.hasToggle ? 'Found' : 'Missing' },
       { name: 'Form inputs enabled',           pass: checks.formInputs > 0,  detail: `${checks.formInputs} enabled` },
       { name: 'Donate button has valid href',  pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_nahal.pass,  detail: hv_nahal.detail },
+      searchResult_nahal,
+      ...mob_nahal,
     ];
   },
 
   // ── Race to Bais Olami ───────────────────────────────────────────
   // SVG icons report naturalWidth=0 — EXCLUDED by CHECK_BROKEN_IMAGES.
   // Campaign page: "100 young men", "DONATE", "REGISTER" CTAs.
-  r2bo: async (page) => {
+  r2bo: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES); // SVGs excluded
     const footer = await page.evaluate(CHECK_FOOTER);
@@ -938,6 +1164,10 @@ const SITE_CHECKS = {
       hasCampaign: (document.body?.innerText||'').includes('100') || (document.body?.innerText||'').includes('young men') || document.querySelectorAll('img').length > 2,
       donateHref:  Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
     }));
+
+    // ── Header visual + mobile checks ──
+    const hv_r2bo = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_r2bo = await runMobileChecks(browser, 'https://racetobais.olami.org/');
     return [
       { name: 'Logo visible and loaded',        pass: logo.pass,            detail: logo.detail },
       { name: 'No broken images (SVG excluded)',pass: broken.pass,          detail: broken.pass ? `${broken.total} imgs checked` : `Broken: ${broken.broken.join(', ')}` },
@@ -945,13 +1175,16 @@ const SITE_CHECKS = {
       { name: 'Campaign content visible',       pass: checks.hasContent,    detail: checks.hasContent ? 'Found' : 'Missing' },
       { name: 'CTA buttons present',            pass: checks.hasCTABtns,    detail: checks.hasCTABtns ? 'Found' : 'Missing' },
       { name: 'Donate button has valid href',   pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_r2bo.pass,  detail: hv_r2bo.detail },
+      ...mob_r2bo,
     ];
   },
 
   // ── Ohr Torah Stone ──────────────────────────────────────────────
   // Donation page. img.custom-logo. Donate button, language selector, amounts ($36/$50/$100)
   // Give once/Monthly, dedication option. Form inputs enabled.
-  ots: async (page) => {
+  ots: async (page, site, browser) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const footer = await page.evaluate(CHECK_FOOTER);
@@ -963,6 +1196,10 @@ const SITE_CHECKS = {
       formInputs:   Array.from(document.querySelectorAll('input[type="radio"],input[type="text"],input[type="number"],input[type="email"]')).filter(i=>!i.disabled).length,
       donateHref:   Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
     }));
+
+    // ── Header visual + mobile checks ──
+    const hv_ots = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob_ots = await runMobileChecks(browser, 'https://fundraise.ots.org.il/');
     return [
       { name: 'Logo visible and loaded',        pass: logo.pass,              detail: logo.detail },
       { name: 'No broken images',               pass: broken.pass,            detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
@@ -973,6 +1210,9 @@ const SITE_CHECKS = {
       { name: 'Dedication option visible',      pass: checks.hasDedicated,    detail: checks.hasDedicated ? 'Found' : 'Missing' },
       { name: 'Form inputs enabled',            pass: checks.formInputs > 0,  detail: `${checks.formInputs} enabled` },
       { name: 'Donate button has valid href',   pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+
+      { name: '[Desktop] Header visual integrity',     pass: hv_ots.pass,  detail: hv_ots.detail },
+      ...mob_ots,
     ];
   },
 };
@@ -1005,22 +1245,26 @@ async function fbWrite(fbPath, data) {
 // CLAUDE VISION
 // ─────────────────────────────────────────────────────────────────
 async function analyzeWithClaude(screenshotBase64, site) {
-  const prompt = `You are a QA agent checking "${site.name}" (${site.url}).
+  const prompt = `You are a QA agent reviewing a screenshot of "${site.name}" at ${site.url}.
 
-REPORT ONLY these as major failures:
-- Blank or white page with no content
-- HTTP error pages (404, 500, 503 etc.)
-- "This site can't be reached" or DNS failure
-- Domain parking / "buy this domain" / suspended account
-- "Coming soon" or "Under construction" pages
-- Server crash or database error messages
-- Completely wrong website showing
-- Login wall blocking a public page
+Write a clear, specific, professional pageDescription of exactly what you see — mention the site name, what content is visible, and what the page is doing. Be specific: name buttons, sections, or key elements visible. Example: "United Hatzalah donate page showing equipment cards including EpiPen and Oxygen Kit with currency selector and three donation buttons." NOT vague phrases like "charity website appears to be loading".
 
-IGNORE completely: text changes, new campaigns, updated images, layout tweaks, cookie banners, popups, normal charity content.
+If you see a Cloudflare challenge, CAPTCHA, or bot-verification page: set passing=false and describe it clearly.
 
-Reply ONLY with valid JSON — no markdown, no explanation:
-{"passing":true,"majorIssues":[],"pageDescription":"one sentence describing what you see"}`;
+Set passing=false ONLY for:
+- Blank/white page with zero content
+- HTTP error pages (404, 500, 503)
+- DNS failure / "site can't be reached"
+- Domain parking or suspended account page
+- "Coming soon" / "Under construction" page
+- Server crash or database error
+- Cloudflare CAPTCHA or bot challenge blocking the page
+- Completely wrong website
+
+IGNORE: cookie banners, popups, login prompts on non-public pages, layout changes, new campaigns.
+
+Reply ONLY with valid JSON, no markdown:
+{"passing":true,"majorIssues":[],"pageDescription":"specific description of visible content"}`;
 
   try {
     const res = await fetch(ANTHROPIC_URL, {
@@ -1072,10 +1316,41 @@ async function testSite(browser, site) {
   try {
     context = await browser.newContext({
       ignoreHTTPSErrors: true,
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      // Chrome 124 on Windows 11 — matches common enterprise browser fingerprint
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       viewport: { width: 1440, height: 900 },
+      screen: { width: 1440, height: 900 },
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
+      colorScheme: 'light',
+      // Full set of Accept headers a real Chrome sends
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'Upgrade-Insecure-Requests': '1',
+      },
     });
+    const page0 = await context.newPage();
+    // Remove webdriver flag that Cloudflare detects
+    await page0.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+      window.chrome = { runtime: {} };
+    });
+    await page0.close();
     const page = await context.newPage();
+    // Inject on every new page — removes automation signals Cloudflare checks
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+      window.chrome = { runtime: {} };
+    });
 
     // ── 1. Load homepage ──────────────────────────────────────────
     try {
@@ -1122,7 +1397,7 @@ async function testSite(browser, site) {
     // ── 3. Per-site UI checks ─────────────────────────────────────
     if (SITE_CHECKS[site.id]) {
       try {
-        const uiResults = await SITE_CHECKS[site.id](page, site);
+        const uiResults = await SITE_CHECKS[site.id](page, site, browser);
         result.uiChecks = uiResults;
         // Split manual (⚠) vs real checks for accurate failure counting
         const realChecks   = uiResults.filter(c => !c.name.includes('⚠ MANUAL'));
@@ -1196,7 +1471,16 @@ async function main() {
   if (!sitesToTest.length) { console.error(`No site: "${SINGLE_SITE}"`); process.exit(1); }
   log(`Running ${sitesToTest.length} sites — real DOM checks, no false positives`);
 
-  const browser = await chromium.launch({ args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'] });
+  const browser = await chromium.launch({
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-blink-features=AutomationControlled', // hides navigator.webdriver
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--window-size=1440,900',
+    ]
+  });
 
   let passed=0, failed=0, errored=0;
   const failures = [];
