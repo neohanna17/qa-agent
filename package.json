@@ -1,7 +1,7 @@
 {
   "name": "qa-agent",
   "version": "1.0.0",
-  "description": "Automated AI smoke test agent \u2014 Gemini vision + Playwright",
+  "description": "Automated AI smoke test agent — Gemini vision + Playwright",
   "main": "scripts/smoke-test.js",
   "scripts": {
     "test": "node scripts/smoke-test.js",
@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "playwright": "^1.42.0",
-    "playwright-extra": "^0.3.3",
+    "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "engines": {
