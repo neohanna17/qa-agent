@@ -1309,20 +1309,21 @@ async function fbWrite(fbPath, data) {
 // CLAUDE VISION
 // ─────────────────────────────────────────────────────────────────
 async function analyzeWithClaude(screenshotBase64, site) {
-  const prompt = `You are a visual QA tester reviewing a screenshot of "${site.name}" donate/checkout page.
+  const prompt = `You are a QA bot checking if "${site.name}" (${site.url}) donate/checkout page is working for real donors.
 
-Run these 5 visual checks and return results for each:
-1. "Page loaded correctly" — is this a real working page (not error/blank/CAPTCHA)?
-2. "Key content visible" — can you see the main donation form, product/campaign cards, or checkout elements?
-3. "No broken images" — do images appear loaded (no broken image icons)?
-4. "CTA buttons visible" — are donate/checkout/submit buttons visible?
-5. "Layout looks correct" — does the page look well-structured with no obvious layout breaks?
+Inspect the screenshot and answer these 5 YES/NO questions. Be blunt and specific.
+1. "Page loaded?" — Is this a real functioning page, not an error/blank/CAPTCHA?
+2. "Donation form/amounts visible?" — Can a donor see amounts, a form, or products to select?
+3. "Donate/checkout button visible?" — Is there a clear button a donor can click to give?
+4. "No broken images?" — Are images rendering, or are there broken image placeholders?
+5. "No error messages?" — Is the page free from error text, warnings, or crashes?
 
-For each check set pass:true or pass:false with a brief note (max 8 words).
-Set passing:false overall ONLY if: blank page, HTTP error, DNS failure, domain parking, coming soon, server crash, Cloudflare CAPTCHA.
+For each: pass=true means YES (good), pass=false means NO (problem). Keep note under 6 words.
+pageDescription: what type of page is this in 8 words max, no full sentences.
+Set passing=false ONLY if: blank page, HTTP error, DNS fail, domain parked, Cloudflare CAPTCHA, completely wrong site.
 
-Reply ONLY with valid JSON, no markdown, no explanation:
-{"passing":true,"majorIssues":[],"pageDescription":"one line summary max 12 words","visualChecks":[{"item":"Page loaded correctly","pass":true,"note":""},{"item":"Key content visible","pass":true,"note":""},{"item":"No broken images","pass":true,"note":""},{"item":"CTA buttons visible","pass":true,"note":""},{"item":"Layout looks correct","pass":true,"note":""}]}`;
+JSON only, no markdown:
+{"passing":true,"majorIssues":[],"pageDescription":"8 word page type description","visualChecks":[{"item":"Page loaded?","pass":true,"note":""},{"item":"Donation form/amounts visible?","pass":true,"note":""},{"item":"Donate/checkout button visible?","pass":true,"note":""},{"item":"No broken images?","pass":true,"note":""},{"item":"No error messages?","pass":true,"note":""}]}`;
 
   try {
     const res = await fetch(ANTHROPIC_URL, {
