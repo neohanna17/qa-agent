@@ -28,8 +28,10 @@ const FIREBASE_URL   = (process.env.FIREBASE_DATABASE_URL || '').replace(/\/$/, 
 const GEMINI_KEY     = process.env.GEMINI_API_KEY || '';
 const SINGLE_SITE    = process.env.SINGLE_SITE   || '';
 const SCREENSHOT_DIR = '/tmp/qa-screenshots';
-const GEMINI_MODEL   = 'gemini-2.0-flash';
-const GEMINI_URL     = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_MODEL        = 'gemini-2.0-flash';
+const GEMINI_MODEL_FALLBACK = 'gemini-1.5-flash-8b'; // separate quota bucket — used if primary hits 429
+const GEMINI_URL      = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_URL_FALLBACK = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_FALLBACK}:generateContent?key=${GEMINI_KEY}`;
 
 if (!FIREBASE_URL) { console.error('FIREBASE_DATABASE_URL is not set'); process.exit(1); }
 if (!GEMINI_KEY)   { console.error('GEMINI_API_KEY is not set');         process.exit(1); }
@@ -50,9 +52,12 @@ const CHECK_LOGO = `(() => {
     if (isSvg) return img.complete; // SVGs: just check complete, naturalWidth is always 0
     return img.complete && img.naturalWidth > 0;
   }
-  // WordPress standard
+  // WordPress standard — img.custom-logo class IS the logo, trust src+complete even if naturalWidth=0
+  // naturalWidth=0 is a known headless Chrome quirk for PNG images in GitHub Actions
   const wpLogo = document.querySelector('img.custom-logo');
-  if (wpLogo && imgLoaded(wpLogo)) return { pass: true, detail: 'custom-logo: ' + (wpLogo.alt || wpLogo.src.split('/').slice(-1)[0]) };
+  if (wpLogo && wpLogo.src && !wpLogo.src.startsWith('data:') && wpLogo.complete) {
+    return { pass: true, detail: 'custom-logo: ' + (wpLogo.alt || wpLogo.src.split('/').slice(-1)[0]) };
+  }
   // Elementor / custom WP / other builders: any header-area img that is loaded
   const containers = [
     ...document.querySelectorAll('header'),
@@ -736,8 +741,8 @@ async function analyzeWithGemini(screenshotBase64, site) {
 REPORT ONLY: blank/white page, HTTP error pages, DNS failure, domain parking, coming soon, server crash, wrong website, public page behind login wall.
 IGNORE: text changes, images, campaigns, layout, cookie banners, popups, normal charity content.
 Reply ONLY with JSON: {"passing":true,"majorIssues":[],"pageDescription":"one sentence"}`;
-  try {
-    const res = await fetch(GEMINI_URL, {
+  async function callGemini(url) {
+    return fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -748,6 +753,14 @@ Reply ONLY with JSON: {"passing":true,"majorIssues":[],"pageDescription":"one se
         generationConfig: { temperature: 0.1, maxOutputTokens: 200 },
       }),
     });
+  }
+  try {
+    let res = await callGemini(GEMINI_URL);
+    // On 429 (quota exceeded), retry with fallback model which has a separate quota bucket
+    if (res.status === 429) {
+      log(`  Gemini primary quota exceeded — retrying with fallback model (${GEMINI_MODEL_FALLBACK})...`, 'warn');
+      res = await callGemini(GEMINI_URL_FALLBACK);
+    }
     if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0,200)}`);
     const json = await res.json();
     const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
