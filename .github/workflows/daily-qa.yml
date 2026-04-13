@@ -2,7 +2,9 @@ name: Daily QA Smoke Tests
 
 on:
   schedule:
+    # Runs every day at 6:00 AM UTC (8am Israel / 9am South Africa)
     - cron: '0 6 * * *'
+  # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
     inputs:
       site_id:
@@ -20,17 +22,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 24
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-
-      - name: Show file structure
-        run: |
-          echo "=== ROOT ==="
-          ls -la
-          echo "=== SCRIPTS FOLDER ==="
-          ls -la scripts/ || echo "NO SCRIPTS FOLDER FOUND"
+          node-version: '20'
 
       - name: Install dependencies
         run: npm install
@@ -40,7 +35,7 @@ jobs:
 
       - name: Run smoke tests
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
           SINGLE_SITE: ${{ github.event.inputs.site_id }}
         run: node scripts/smoke-test.js
