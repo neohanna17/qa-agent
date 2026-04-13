@@ -1309,14 +1309,20 @@ async function fbWrite(fbPath, data) {
 // CLAUDE VISION
 // ─────────────────────────────────────────────────────────────────
 async function analyzeWithClaude(screenshotBase64, site) {
-  const prompt = `QA screenshot review of "${site.name}" (${site.url}).
+  const prompt = `You are a visual QA tester reviewing a screenshot of "${site.name}" donate/checkout page.
 
-Write a pageDescription of MAX 15 words summarising what you see. Format: "[Site name] — [what type of page] — [1 key observation]". Example: "Shomrim Toronto — homepage — hero image, nav, File an Incident button visible."
+Run these 5 visual checks and return results for each:
+1. "Page loaded correctly" — is this a real working page (not error/blank/CAPTCHA)?
+2. "Key content visible" — can you see the main donation form, product/campaign cards, or checkout elements?
+3. "No broken images" — do images appear loaded (no broken image icons)?
+4. "CTA buttons visible" — are donate/checkout/submit buttons visible?
+5. "Layout looks correct" — does the page look well-structured with no obvious layout breaks?
 
-Set passing=false ONLY for: blank page, HTTP error, DNS failure, domain parking, coming soon, server crash, Cloudflare CAPTCHA blocking the page, completely wrong website.
+For each check set pass:true or pass:false with a brief note (max 8 words).
+Set passing:false overall ONLY if: blank page, HTTP error, DNS failure, domain parking, coming soon, server crash, Cloudflare CAPTCHA.
 
-Reply ONLY with valid JSON, no markdown:
-{"passing":true,"majorIssues":[],"pageDescription":"max 15 word summary"}`;
+Reply ONLY with valid JSON, no markdown, no explanation:
+{"passing":true,"majorIssues":[],"pageDescription":"one line summary max 12 words","visualChecks":[{"item":"Page loaded correctly","pass":true,"note":""},{"item":"Key content visible","pass":true,"note":""},{"item":"No broken images","pass":true,"note":""},{"item":"CTA buttons visible","pass":true,"note":""},{"item":"Layout looks correct","pass":true,"note":""}]}`;
 
   try {
     const res = await fetch(ANTHROPIC_URL, {
@@ -1328,7 +1334,7 @@ Reply ONLY with valid JSON, no markdown:
       },
       body: JSON.stringify({
         model: ANTHROPIC_MODEL,
-        max_tokens: 150,
+        max_tokens: 400,
         messages: [{
           role: 'user',
           content: [
@@ -1360,7 +1366,8 @@ Reply ONLY with valid JSON, no markdown:
     return {
       passing:         Boolean(parsed.passing),
       majorIssues:     Array.isArray(parsed.majorIssues) ? parsed.majorIssues : [],
-      pageDescription: parsed.pageDescription || 'Analysis complete.',
+      pageDescription: parsed.pageDescription || 'Visual analysis complete.',
+      visualChecks:    Array.isArray(parsed.visualChecks) ? parsed.visualChecks : [],
     };
   } catch (err) {
     log(`  Claude vision error: ${err.message}`, 'warn');
@@ -1437,6 +1444,16 @@ async function testSite(browser, site) {
 
     try { await page.waitForLoadState('networkidle', { timeout: 10000 }); } catch {}
     await page.waitForTimeout(2000);
+
+    // Store page URLs so dashboard can link each check to the right page
+    result.pageUrls = {
+      home:   site.url,
+      donate: DONATE_URLS[site.id] || null,
+      p2p:    site.url.replace(/\/$/, '') + '/my-mitzvah-all-campaigns/',
+      ecards: site.url.replace(/\/$/, '') + '/ecards/',
+      events: site.url.replace(/\/$/, '') + '/event/',
+      behero: site.url.replace(/\/$/, '') + '/be-a-hero/',
+    };
 
     // ── Take homepage screenshot immediately ─────────────────────
     try {
