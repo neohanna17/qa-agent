@@ -1,0 +1,50 @@
+ame: Daily QA Smoke Tests
+
+on:
+  schedule:
+    # Runs every day at 6:00 AM UTC (8am Israel time, 9am South Africa time)
+    - cron: '0 6 * * *'
+  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      site_id:
+        description: 'Run a single site by ID (leave empty for all sites)'
+        required: false
+        default: ''
+
+jobs:
+  smoke-test:
+    name: Run AI Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Run smoke tests
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
+          SINGLE_SITE: ${{ github.event.inputs.site_id }}
+        run: node scripts/smoke-test.js
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-screenshots
+          path: /tmp/qa-screenshots/
+          retention-days: 7
