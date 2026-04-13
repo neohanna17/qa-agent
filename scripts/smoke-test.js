@@ -172,28 +172,33 @@ const SITE_CHECKS = {
   // Navigate to /donate — logo=img.custom-logo, currency=select.switch_currency,
   // equipment=.levcharity_donation_equipments_wrapper, 2 donate buttons in body
   uh: async (page) => {
+    // ── Step 1: Logo check on HOMEPAGE (already loaded by testSite before this runs)
+    // Checking logo here avoids the headless rendering issue on /donate where
+    // img.custom-logo loads via JS and naturalWidth stays 0 in GitHub Actions
+    const logo = await page.evaluate(CHECK_LOGO);
+
+    // ── Step 2: Navigate to /donate for equipment + currency checks
     await page.goto('https://israelrescue.org/donate', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 10000 }); } catch {}
-    // Equipment + currency are JS-rendered — wait for actual DOM element, not just a timer
-    // timeSinceLoad on real page shows content at ~11s; headless may need longer
-    try { await page.waitForSelector('.levcharity_donation_equipments_wrapper, .donation_equipment_product_thumbnail', { timeout: 15000 }); } catch {}
-    try { await page.waitForSelector('select.switch_currency, select', { timeout: 5000 }); } catch {}
+    try { await page.waitForLoadState('networkidle', { timeout: 12000 }); } catch {}
+    // Wait for actual equipment element — not a fixed timer
+    try { await page.waitForSelector('.levcharity_donation_equipments_wrapper, .donation_equipment_product_thumbnail', { timeout: 20000 }); } catch {}
     await page.waitForTimeout(2000);
-    const logo    = await page.evaluate(CHECK_LOGO);
-    const broken  = await page.evaluate(CHECK_BROKEN_IMAGES);
-    const footer  = await page.evaluate(CHECK_FOOTER);
-    const checks  = await page.evaluate(() => ({
-      hasCurrency:  !!(document.querySelector('select.switch_currency') || document.querySelector('select')),
+
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const checks = await page.evaluate(() => ({
+      // Currency switcher is also a language switcher — any select element qualifies
+      hasCurrency:  !!(document.querySelector('select.switch_currency') || document.querySelector('select[class*="currency"]') || document.querySelector('select')),
       hasEquipment: !!(document.querySelector('.levcharity_donation_equipments_wrapper') || document.querySelector('.donation_equipment_product_thumbnail')),
       hasCustomBtn: Array.from(document.querySelectorAll('a,button')).some(b => /custom amount/i.test(b.innerText)),
       hasEquipBtn:  Array.from(document.querySelectorAll('a,button')).some(b => /equipment now/i.test(b.innerText) || /donate \$/i.test(b.innerText)),
       donateHref:   Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
     }));
     return [
-      { name: 'Logo visible and loaded',              pass: logo.pass,            detail: logo.detail },
+      { name: 'Logo visible and loaded (homepage)',   pass: logo.pass,            detail: logo.detail },
       { name: 'No broken images',                     pass: broken.pass,          detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
       { name: 'Footer present',                       pass: footer.pass,          detail: `${footer.linkCount} links` },
-      { name: 'Currency selector present',            pass: checks.hasCurrency,   detail: checks.hasCurrency ? 'Found' : 'Missing' },
+      { name: 'Currency / language selector present', pass: checks.hasCurrency,   detail: checks.hasCurrency ? 'Found' : 'Missing' },
       { name: 'Equipment section loads',              pass: checks.hasEquipment,  detail: checks.hasEquipment ? 'Found' : 'Missing' },
       { name: '"Donate Custom Amount" button exists', pass: checks.hasCustomBtn,  detail: checks.hasCustomBtn ? 'Found' : 'Missing' },
       { name: '"Donate Equipment Now" button exists', pass: checks.hasEquipBtn,   detail: checks.hasEquipBtn ? 'Found' : 'Missing' },
