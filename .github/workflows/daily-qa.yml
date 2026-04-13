@@ -1,4 +1,4 @@
-ame: Daily QA Smoke Tests
+name: Daily QA Smoke Tests
 
 on:
   schedule:
