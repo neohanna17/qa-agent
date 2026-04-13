@@ -273,6 +273,31 @@ async function runMobileChecks(browser, url) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// DONATE PAGE URLS — the checkout/donation page for each site
+// Used to take a second screenshot showing the donation experience
+// ─────────────────────────────────────────────────────────────────
+const DONATE_URLS = {
+  pantry:     'https://give.pantrypackers.org/',          // IS a donation page
+  israelthon: 'https://israelthon.org/',                  // IS a donation page
+  yorkville:  'https://donate.yorkvillejewishcentre.com/',// IS a donation page
+  chaiathon:  'https://chaiathon.org/?lc-add-to-cart=664',// direct donate
+  fcl:        'https://fundraise.chailifeline.org/',      // IS a donation/campaign page
+  uh:         'https://israelrescue.org/donate',          // dedicated donate page
+  clc:        'https://fundraise.chailifelinecanada.org/',// IS a donation page
+  afmda:      'https://crowdfund.afmda.org/',             // IS a crowdfund page
+  misaskim:   'https://misaskim.ca/donate',               // dedicated donate page
+  shomrim:    'https://shomrimtoronto.org/?lc-add-to-cart=3173',
+  fallen:     'https://fallenh.org/',                     // IS a donation page
+  nitzanim:   'https://members.kehilatnitzanim.org/',     // IS a portal page
+  imf:        'https://israelmagenfund.org/',             // IS a donate page
+  adi:        'https://adi-il.org/donate/',               // dedicated donate page
+  yeshiva:    'https://donate.theyeshiva.net',            // IS a donation page
+  nahal:      'https://give.nahalharedi.org/',            // IS a donation page
+  r2bo:       'https://racetobais.olami.org/',            // IS a campaign page
+  ots:        'https://fundraise.ots.org.il/',            // IS a donation page
+};
+
+// ─────────────────────────────────────────────────────────────────
 // SITES
 // ─────────────────────────────────────────────────────────────────
 const SITES = [
@@ -1284,26 +1309,14 @@ async function fbWrite(fbPath, data) {
 // CLAUDE VISION
 // ─────────────────────────────────────────────────────────────────
 async function analyzeWithClaude(screenshotBase64, site) {
-  const prompt = `You are a QA agent reviewing a screenshot of "${site.name}" at ${site.url}.
+  const prompt = `QA screenshot review of "${site.name}" (${site.url}).
 
-Write a clear, specific, professional pageDescription of exactly what you see — mention the site name, what content is visible, and what the page is doing. Be specific: name buttons, sections, or key elements visible. Example: "United Hatzalah donate page showing equipment cards including EpiPen and Oxygen Kit with currency selector and three donation buttons." NOT vague phrases like "charity website appears to be loading".
+Write a pageDescription of MAX 15 words summarising what you see. Format: "[Site name] — [what type of page] — [1 key observation]". Example: "Shomrim Toronto — homepage — hero image, nav, File an Incident button visible."
 
-If you see a Cloudflare challenge, CAPTCHA, or bot-verification page: set passing=false and describe it clearly.
-
-Set passing=false ONLY for:
-- Blank/white page with zero content
-- HTTP error pages (404, 500, 503)
-- DNS failure / "site can't be reached"
-- Domain parking or suspended account page
-- "Coming soon" / "Under construction" page
-- Server crash or database error
-- Cloudflare CAPTCHA or bot challenge blocking the page
-- Completely wrong website
-
-IGNORE: cookie banners, popups, login prompts on non-public pages, layout changes, new campaigns.
+Set passing=false ONLY for: blank page, HTTP error, DNS failure, domain parking, coming soon, server crash, Cloudflare CAPTCHA blocking the page, completely wrong website.
 
 Reply ONLY with valid JSON, no markdown:
-{"passing":true,"majorIssues":[],"pageDescription":"specific description of visible content"}`;
+{"passing":true,"majorIssues":[],"pageDescription":"max 15 word summary"}`;
 
   try {
     const res = await fetch(ANTHROPIC_URL, {
@@ -1315,7 +1328,7 @@ Reply ONLY with valid JSON, no markdown:
       },
       body: JSON.stringify({
         model: ANTHROPIC_MODEL,
-        max_tokens: 600,
+        max_tokens: 150,
         messages: [{
           role: 'user',
           content: [
@@ -1425,6 +1438,15 @@ async function testSite(browser, site) {
     try { await page.waitForLoadState('networkidle', { timeout: 10000 }); } catch {}
     await page.waitForTimeout(2000);
 
+    // ── Take homepage screenshot immediately ─────────────────────
+    try {
+      const homeSS = await page.screenshot({ type: 'jpeg', quality: 50, fullPage: false, clip: { x:0, y:0, width:1440, height:900 } });
+      result.screenshots = result.screenshots || {};
+      result.screenshots.homepage = homeSS.toString('base64');
+      fs.writeFileSync(path.join(SCREENSHOT_DIR, `${site.id}-home.jpg`), homeSS);
+      log('  Homepage screenshot captured');
+    } catch(e) { log('  Homepage screenshot failed: ' + e.message, 'warn'); }
+
     // ── 2. Generic page-level checks ─────────────────────────────
     const title = await page.title().catch(() => '');
     result.checks.pageTitle = { pass: title.length > 0 && !ERROR_TITLE_WORDS.some(w => title.toLowerCase().includes(w)), value: title };
@@ -1495,14 +1517,60 @@ async function testSite(browser, site) {
       }
     }
 
-    // ── 4. Screenshot + Claude vision ──────────────────────────────
+    // ── 4. Donate page screenshot + Claude vision ────────────────
     try {
-      const ss = await page.screenshot({ type: 'jpeg', quality: 35, fullPage: false, clip: { x:0, y:0, width:1440, height:900 } });
-      fs.writeFileSync(path.join(SCREENSHOT_DIR, `${site.id}.jpg`), ss);
-      // Store compressed screenshot in result for dashboard display
-      result.screenshot = ss.toString('base64');
+      result.screenshots = result.screenshots || {};
+      const donateUrl = DONATE_URLS[site.id];
+
+      // Navigate to donate page — try DONATE_URLS first, then fallbacks
+      let donateSS;
+      const baseUrl = site.url.replace(/\/$/, '');
+      const candidateUrls = [
+        donateUrl,
+        donateUrl ? null : baseUrl + '/donate',
+        baseUrl + '/checkout',
+        baseUrl + '/lc/checkout',
+        baseUrl + '/donate/',
+      ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i); // dedupe
+
+      let donateLoaded = false;
+      for (const tryUrl of candidateUrls) {
+        if (tryUrl === site.url || tryUrl === page.url()) {
+          donateLoaded = true; // already on the right page
+          break;
+        }
+        try {
+          const resp = await page.goto(tryUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          const status = resp?.status() ?? 0;
+          if (status < 400) {
+            try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+            await page.waitForTimeout(1500);
+            const blocked = await isCloudflareBlocked(page);
+            if (!blocked) {
+              log(`  Donate page loaded: ${tryUrl}`);
+              result.donateUrl = tryUrl;
+              donateLoaded = true;
+              break;
+            }
+          }
+          log(`  Donate ${tryUrl} → ${status || 'blocked'}, trying next...`, 'warn');
+        } catch(navErr) {
+          log(`  Donate ${tryUrl} failed: ${navErr.message.slice(0,40)}`, 'warn');
+        }
+      }
+      if (!donateLoaded) log('  No donate page accessible — using current page for screenshot', 'warn');
+
+      donateSS = await page.screenshot({ type: 'jpeg', quality: 50, fullPage: false, clip: { x:0, y:0, width:1440, height:900 } });
+      result.screenshots.donate = donateSS.toString('base64');
+      fs.writeFileSync(path.join(SCREENSHOT_DIR, `${site.id}-donate.jpg`), donateSS);
+      log('  Donate page screenshot captured');
+
+      // Also keep single result.screenshot for backwards compat (homepage)
+      result.screenshot = result.screenshots.homepage || donateSS.toString('base64');
+
+      // Claude vision on donate page
       log('  Claude vision...', 'ai');
-      const ai = await analyzeWithClaude(ss.toString('base64'), site);
+      const ai = await analyzeWithClaude(donateSS.toString('base64'), site);
       result.aiAnalysis = ai;
       log(`  Claude: ${ai.pageDescription}`, 'ai');
       if (ai.passing === false && ai.majorIssues?.length > 0) {
