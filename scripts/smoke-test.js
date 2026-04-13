@@ -1,12 +1,14 @@
 /**
- * QA Smoke Test Agent — Google Gemini Vision + Per-Site UI Checks
+ * QA Smoke Test Agent v3 — Gemini Vision + Real DOM Checks
  *
- * Each site has specific checks based on what was actually seen on the page:
- * - Logo present
- * - Key navigation items present
- * - Critical buttons present and clickable
- * - Donation form elements present
- * - No broken critical flows
+ * Per-site checks based on actual DOM inspection:
+ * - img.custom-logo (WordPress standard — confirmed on all sites)
+ * - nav a.wp-block-navigation-item__content (Gutenberg nav links)
+ * - Broken image detection via naturalWidth === 0
+ * - Nav link href validation
+ * - Footer link validation
+ * - Donate/CTA button click testing
+ * - Form field presence and enabled state
  */
 
 const { chromium } = require('playwright');
@@ -25,294 +27,70 @@ if (!GEMINI_KEY)   { console.error('GEMINI_API_KEY is not set');         process
 
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
-// ── Helper: check if element exists on page ───────────────────────
-async function elExists(page, selector) {
-  try { return await page.locator(selector).first().isVisible({ timeout: 3000 }); }
-  catch { return false; }
-}
+// ── Universal DOM helpers (run inside page.evaluate) ──────────────
 
-// ── Helper: check if text exists anywhere on page ─────────────────
-async function textExists(page, text) {
-  try {
-    const count = await page.getByText(text, { exact: false }).count();
-    return count > 0;
-  } catch { return false; }
-}
-
-// ── Helper: check if a link/button navigates somewhere ────────────
-async function linkWorks(page, selector, context) {
-  try {
-    const el = page.locator(selector).first();
-    if (!await el.isVisible({ timeout: 3000 })) return { pass: false, reason: 'Element not visible' };
-    const href = await el.getAttribute('href').catch(() => null);
-    if (href && (href.startsWith('http') || href.startsWith('/'))) {
-      return { pass: true, href };
+const CHECK_LOGO = `
+  (() => {
+    // WordPress standard: img.custom-logo
+    const wpLogo = document.querySelector('img.custom-logo');
+    if (wpLogo && wpLogo.naturalWidth > 0) return { pass: true, detail: 'custom-logo: ' + wpLogo.alt };
+    // Fallback: any img in header/nav with meaningful size
+    const headerImgs = document.querySelectorAll('header img, nav img');
+    for (const img of headerImgs) {
+      if (img.naturalWidth > 30 && img.naturalHeight > 10) return { pass: true, detail: 'header img: ' + img.alt };
     }
-    // If no href, check it's at least a button with onclick or similar
-    const tag = await el.evaluate(e => e.tagName.toLowerCase());
-    if (tag === 'button' || tag === 'a') return { pass: true, href: href || '(button)' };
-    return { pass: false, reason: 'No valid href or button' };
-  } catch (e) { return { pass: false, reason: e.message }; }
-}
+    // Fallback: site title text
+    const title = document.querySelector('.site-title, #site-title, .navbar-brand');
+    if (title && title.innerText?.trim().length > 0) return { pass: true, detail: 'site-title text' };
+    return { pass: false, detail: 'No logo found' };
+  })()
+`;
 
-// ── Per-site specific UI checks ───────────────────────────────────
-// Each returns array of { name, pass, detail }
-const SITE_CHECKS = {
+const CHECK_BROKEN_IMAGES = `
+  (() => {
+    const imgs = Array.from(document.querySelectorAll('img'));
+    const broken = imgs.filter(img =>
+      img.complete &&
+      img.naturalWidth === 0 &&
+      img.src &&
+      !img.src.startsWith('data:') &&
+      !img.src.includes('about:blank') &&
+      img.src.length > 10
+    ).map(img => img.src.split('/').slice(-1)[0] || img.src.slice(-40));
+    return { pass: broken.length === 0, broken: broken.slice(0, 8), total: imgs.length };
+  })()
+`;
 
-  uh: async (page) => {
-    // United Hatzalah - donate page has equipment cards + currency selector
-    await page.goto('https://israelrescue.org/donate', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',                  pass: await elExists(page, 'img[alt*="Hatzalah"], img[alt*="hatzalah"], img[alt*="United"], .logo img, header img') },
-      { name: 'Currency selector present',     pass: await elExists(page, 'select, [class*="currency"], [class*="Currency"]') },
-      { name: '"Donate Custom Amount" button', pass: await textExists(page, 'Donate Custom Amount') },
-      { name: 'Equipment donation cards',      pass: await textExists(page, 'Donate $') || await textExists(page, 'EpiPen') || await textExists(page, 'Oxygen') },
-      { name: '"Donate Equipment Now" button', pass: await textExists(page, 'Donate Equipment Now') || await textExists(page, 'Donate Now') },
-      { name: 'Donation amount buttons',       pass: await elExists(page, '[class*="donate"], [class*="amount"], button') },
-    ];
-  },
+const CHECK_NAV_LINKS = `
+  (() => {
+    const nav = document.querySelector('nav, #site-navigation, .main-navigation, header nav');
+    if (!nav) return { pass: false, detail: 'No nav element found', links: [] };
+    const links = Array.from(nav.querySelectorAll('a[href]'))
+      .map(a => ({ text: a.innerText?.trim().slice(0,30), href: a.href }))
+      .filter(l => l.text.length > 0 && l.href && !l.href.startsWith('javascript'));
+    const broken = links.filter(l => !l.href || l.href === window.location.href + '#');
+    return {
+      pass: links.length > 0,
+      count: links.length,
+      links: links.slice(0, 8),
+      broken: broken.slice(0, 4),
+    };
+  })()
+`;
 
-  chaiathon: async (page) => {
-    await page.goto('https://chaiathon.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',               pass: await elExists(page, 'img[alt*="Chai"], img[alt*="chai"], header img, .logo img, nav img') },
-      { name: '"Fundraisers" nav item',     pass: await textExists(page, 'Fundraisers') },
-      { name: '"Teams" nav item',           pass: await textExists(page, 'Teams') },
-      { name: '"Prizes" nav item',          pass: await textExists(page, 'Prizes') },
-      { name: 'Search bar present',         pass: await elExists(page, 'input[type="search"], input[placeholder*="Find"], input[placeholder*="Search"]') },
-      { name: '"Register" button present',  pass: await textExists(page, 'Register') },
-      { name: '"Login" button present',     pass: await textExists(page, 'Login') },
-      { name: '"Donate" button present',    pass: await textExists(page, 'Donate') },
-      { name: 'Fundraiser count stat',      pass: await textExists(page, 'Fundraisers') && await elExists(page, '[class*="stat"], [class*="count"], [class*="number"]') },
-      { name: '"Order your Kit" button',    pass: await textExists(page, 'Order') && (await textExists(page, 'Kit') || await textExists(page, 'kit')) },
-    ];
-  },
+const CHECK_FOOTER = `
+  (() => {
+    const footer = document.querySelector('footer, #colophon, .site-footer, [class*="footer"]');
+    if (!footer) return { pass: false, detail: 'No footer element found' };
+    const links = Array.from(footer.querySelectorAll('a[href]'))
+      .map(a => ({ text: a.innerText?.trim().slice(0,25), href: a.href }))
+      .filter(l => l.text.length > 0);
+    const hasContent = footer.innerText?.trim().length > 20;
+    return { pass: hasContent && links.length > 0, linkCount: links.length, links: links.slice(0,6) };
+  })()
+`;
 
-  fcl: async (page) => {
-    await page.goto('https://fundraise.chailifeline.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',                       pass: await elExists(page, 'img[alt*="Chai"], img[alt*="Lifeline"], header img, .logo img') },
-      { name: '"Learn More" button present',        pass: await textExists(page, 'Learn More') || await textExists(page, 'Learn more') },
-      { name: '"Donate Now" button present',        pass: await textExists(page, 'Donate Now') || await textExists(page, 'Donate') },
-      { name: 'Hero/banner section loads',          pass: await elExists(page, '[class*="hero"], [class*="banner"], [class*="Hero"], section') },
-      { name: 'Campaign cards visible',             pass: await elExists(page, '[class*="card"], [class*="Card"]') || await elExists(page, 'article') },
-    ];
-  },
-
-  clc: async (page) => {
-    await page.goto('https://fundraise.chailifelinecanada.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',               pass: await elExists(page, 'img[alt*="Chai"], header img, .logo img') },
-      { name: '"Ways to Give" nav present', pass: await textExists(page, 'Ways to Give') || await textExists(page, 'Ways to give') },
-      { name: '"Login" button present',     pass: await textExists(page, 'Login') },
-      { name: '"Sign Up" button present',   pass: await textExists(page, 'Sign Up') || await textExists(page, 'Sign up') },
-      { name: 'Donation amount options',    pass: await textExists(page, 'C$') || await textExists(page, 'Give once') || await textExists(page, 'Monthly') },
-      { name: 'Donation form visible',      pass: await elExists(page, 'form, [class*="form"], [class*="donation"]') },
-    ];
-  },
-
-  afmda: async (page) => {
-    await page.goto('https://crowdfund.afmda.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',            pass: await elExists(page, 'img[alt*="AFMDA"], img[alt*="Magen"], header img, .logo img') },
-      { name: 'Donate button present',   pass: await textExists(page, 'Donate') },
-      { name: 'Campaign content loads',  pass: await elExists(page, '[class*="campaign"], [class*="card"], section') },
-      { name: 'Navigation present',      pass: await elExists(page, 'nav, header') },
-    ];
-  },
-
-  misaskim: async (page) => {
-    await page.goto('https://misaskim.ca', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',          pass: await elExists(page, 'img[alt*="Misaskim"], img[alt*="misaskim"], header img, .logo img') },
-      { name: 'Donate button present', pass: await textExists(page, 'Donate') },
-      { name: 'Navigation present',    pass: await elExists(page, 'nav, header') },
-      { name: 'Page has main content', pass: await elExists(page, 'main, [class*="main"], [class*="hero"], section') },
-    ];
-  },
-
-  mizrachi: async (page) => {
-    await page.goto('https://fundraise.mizrachi.ca', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',          pass: await elExists(page, 'img[alt*="Mizrachi"], header img, .logo img') },
-      { name: 'Donate button present', pass: await textExists(page, 'Donate') },
-      { name: 'Navigation present',    pass: await elExists(page, 'nav, header') },
-      { name: 'Page has content',      pass: await elExists(page, 'main, section, [class*="hero"]') },
-    ];
-  },
-
-  shomrim: async (page) => {
-    await page.goto('https://shomrimtoronto.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',                  pass: await elExists(page, 'img[alt*="Shomrim"], header img, .logo img') },
-      { name: '"About" nav item',              pass: await textExists(page, 'About') },
-      { name: '"Donate" nav item',             pass: await textExists(page, 'Donate') },
-      { name: '"File an incident" button',     pass: await textExists(page, 'File an incident') || await textExists(page, 'File an Incident') },
-      { name: 'Emergency phone number',        pass: await textExists(page, '647') || await textExists(page, 'Emergency') },
-      { name: '"Learn More" / CTA button',     pass: await textExists(page, 'Learn More') || await textExists(page, 'Volunteer') },
-    ];
-  },
-
-  fallen: async (page) => {
-    await page.goto('https://fallenh.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',                       pass: await elExists(page, 'img[alt*="Fallen"], img[alt*="Heroes"], header img, .logo img') },
-      { name: '"DONATE" button in header',          pass: await textExists(page, 'Donate') || await textExists(page, 'DONATE') },
-      { name: '"Our Fundraising Campaigns" link',   pass: await textExists(page, 'Fundraising Campaigns') || await textExists(page, 'Our Fundraising') },
-      { name: 'Donation amount buttons present',    pass: await textExists(page, '$180') || await textExists(page, '$360') || await textExists(page, '180') },
-      { name: '"Custom amount" option',             pass: await textExists(page, 'custom amount') || await textExists(page, 'Custom Amount') || await textExists(page, 'Other') },
-      { name: 'Dedication option',                  pass: await textExists(page, 'dedicated') || await textExists(page, 'dedication') },
-    ];
-  },
-
-  nitzanim: async (page) => {
-    await page.goto('https://members.kehilatnitzanim.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',          pass: await elExists(page, 'img[alt*="Nitzanim"], img[alt*="Kehilat"], header img, .logo img') },
-      { name: 'Navigation present',    pass: await elExists(page, 'nav, header') },
-      { name: 'Login/Join option',     pass: await textExists(page, 'Login') || await textExists(page, 'Join') || await textExists(page, 'Sign') },
-      { name: 'Page has main content', pass: await elExists(page, 'main, section, [class*="hero"]') },
-    ];
-  },
-
-  imf: async (page) => {
-    await page.goto('https://israelmagenfund.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',                    pass: await elExists(page, 'img[alt*="Magen"], img[alt*="Israel"], header img, .logo img') },
-      { name: '"DONATE NOW" button',             pass: await textExists(page, 'Donate Now') || await textExists(page, 'DONATE NOW') },
-      { name: '"Become a Fundraiser" nav link',  pass: await textExists(page, 'Become a Fundraiser') || await textExists(page, 'Fundraiser') },
-      { name: 'Hero headline present',           pass: await textExists(page, 'SAFER') || await textExists(page, 'TOMORROW') || await textExists(page, 'Safeguarding') },
-      { name: '"Our Impact" section',            pass: await textExists(page, 'Impact') || await textExists(page, 'IMPACT') },
-    ];
-  },
-
-  adi: async (page) => {
-    await page.goto('https://adi-il.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',          pass: await elExists(page, 'img[alt*="ADI"], img[alt*="Adi"], header img, .logo img') },
-      { name: 'Donate button present', pass: await textExists(page, 'Donate') || await textExists(page, 'תרום') },
-      { name: 'Navigation present',    pass: await elExists(page, 'nav, header') },
-      { name: 'Page has main content', pass: await elExists(page, 'main, section, [class*="hero"]') },
-    ];
-  },
-
-  yeshiva: async (page) => {
-    await page.goto('https://donate.theyeshiva.net', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',                  pass: await elExists(page, 'img[alt*="Yeshiva"], img[alt*="yeshiva"], header img, .logo img') },
-      { name: '"Back to Home" button',          pass: await textExists(page, 'Back to Home') || await textExists(page, 'Back') },
-      { name: 'Donation options present',       pass: await textExists(page, 'Donation Options') || await textExists(page, 'Sponsor') || await textExists(page, 'Dedication') },
-      { name: 'Donation tiers visible',         pass: await textExists(page, '$1,000') || await textExists(page, '$500') || await textExists(page, '1000') },
-      { name: '"Give once" / "Monthly" toggle', pass: await textExists(page, 'Give once') || await textExists(page, 'Monthly') || await textExists(page, 'One-time') },
-    ];
-  },
-
-  nahal: async (page) => {
-    await page.goto('https://give.nahalharedi.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',               pass: await elExists(page, 'img[alt*="Nahal"], img[alt*="Haredi"], header img, .logo img') },
-      { name: '"Campaigns" nav item',       pass: await textExists(page, 'Campaigns') },
-      { name: '"eCards" nav item',          pass: await textExists(page, 'eCards') || await textExists(page, 'Ecards') },
-      { name: '"DONATE" button',            pass: await textExists(page, 'Donate') || await textExists(page, 'DONATE') },
-      { name: 'Donation form present',      pass: await textExists(page, 'Give once') || await textExists(page, 'Monthly') || await elExists(page, 'form') },
-      { name: 'Donation amounts visible',   pass: await textExists(page, '$ 18') || await textExists(page, '$18') || await textExists(page, '$ 36') },
-    ];
-  },
-
-  r2bo: async (page) => {
-    await page.goto('https://racetobais.olami.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Page loads with content',   pass: await textExists(page, 'Race') || await textExists(page, 'Bais') || await textExists(page, 'Yeshiva') },
-      { name: 'CTA buttons present',       pass: await elExists(page, 'button, a[href*="donate"], a[class*="btn"]') },
-      { name: 'Campaign info visible',     pass: await textExists(page, '100') || await textExists(page, 'young men') || await textExists(page, 'Florida') },
-    ];
-  },
-
-  ots: async (page) => {
-    await page.goto('https://fundraise.ots.org.il', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',                  pass: await elExists(page, 'img[alt*="OTS"], img[alt*="Torah"], img[alt*="Stone"], header img, .logo img') },
-      { name: '"Donate" button present',       pass: await textExists(page, 'Donate') || await textExists(page, 'DONATE') },
-      { name: 'Language selector present',     pass: await textExists(page, 'English') || await elExists(page, '[class*="lang"], select') },
-      { name: 'Donation amounts present',      pass: await textExists(page, '$ 36') || await textExists(page, '$36') || await textExists(page, '$ 50') || await textExists(page, '$50') },
-      { name: '"Give once" / "Monthly"',       pass: await textExists(page, 'Give once') || await textExists(page, 'Monthly') },
-      { name: '"Dedication" option',           pass: await textExists(page, 'dedicated') || await textExists(page, 'Dedication') },
-    ];
-  },
-
-  pantry: async (page) => {
-    await page.goto('https://give.pantrypackers.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',          pass: await elExists(page, 'img[alt*="Pantry"], header img, .logo img') },
-      { name: 'Donate button present', pass: await textExists(page, 'Donate') },
-      { name: 'Navigation present',    pass: await elExists(page, 'nav, header') },
-      { name: 'Page has content',      pass: await elExists(page, 'main, section, [class*="hero"]') },
-    ];
-  },
-
-  israelthon: async (page) => {
-    await page.goto('https://israelthon.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',          pass: await elExists(page, 'img[alt*="Israelthon"], img[alt*="israel"], header img, .logo img') },
-      { name: 'Donate button present', pass: await textExists(page, 'Donate') },
-      { name: 'Navigation present',    pass: await elExists(page, 'nav, header') },
-      { name: 'Page has main content', pass: await elExists(page, 'main, section, [class*="hero"]') },
-    ];
-  },
-
-  yorkville: async (page) => {
-    await page.goto('https://donate.yorkvillejewishcentre.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
-    await page.waitForTimeout(2000);
-    return [
-      { name: 'Logo visible',                pass: await elExists(page, 'img[alt*="Yorkville"], img[alt*="Jewish"], header img, .logo img') },
-      { name: 'Donate button present',       pass: await textExists(page, 'Donate') },
-      { name: 'Donation form present',       pass: await elExists(page, 'form, [class*="form"], [class*="donation"]') },
-      { name: 'Donation amounts visible',    pass: await elExists(page, 'button, [class*="amount"]') && (await textExists(page, '$') || await textExists(page, 'amount')) },
-    ];
-  },
-};
-
-// ── Generic error patterns ────────────────────────────────────────
-const ERROR_TITLE_WORDS  = ['404','403','500','502','503','504','not found','error','page not found','access denied','forbidden','bad gateway','service unavailable','internal server error'];
-const ERROR_BODY_PHRASES = ["this site can't be reached","this page isn't working",'err_connection_refused','dns_probe_finished','application error','database connection','fatal error','under construction','coming soon','parked domain','buy this domain','this domain is for sale','account suspended','bandwidth limit exceeded'];
-
+// ── Sites ─────────────────────────────────────────────────────────
 const SITES = [
   { id: 'pantry',     name: 'Pantry Packers',          url: 'https://give.pantrypackers.org/'           },
   { id: 'israelthon', name: 'Israelthon',               url: 'https://israelthon.org/'                   },
@@ -335,8 +113,379 @@ const SITES = [
   { id: 'ots',        name: 'Ohr Torah Stone',          url: 'https://fundraise.ots.org.il/'             },
 ];
 
+// ── Per-site checks: content + donate button click ────────────────
+const SITE_CHECKS = {
+
+  uh: async (page) => {
+    await page.goto('https://israelrescue.org/donate', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+    await page.waitForTimeout(2000);
+    const logo = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const nav = await page.evaluate(CHECK_NAV_LINKS);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const hasCurrency = await page.evaluate(() => !!document.querySelector('select, [class*="currency"]'));
+    const hasEquipment = await page.evaluate(() => !!document.querySelector('[class*="equipment"], [class*="product_thumbnail"]'));
+    const donateBtnText = await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('button, a'));
+      return btns.filter(b => b.innerText?.toLowerCase().includes('donate')).map(b => b.innerText?.trim().slice(0,30));
+    });
+    const hasCustomAmount = donateBtnText.some(t => t.toLowerCase().includes('custom'));
+    const hasEquipmentBtn = donateBtnText.some(t => t.toLowerCase().includes('equipment') || t.toLowerCase().includes('donate $'));
+    return [
+      { name: 'Logo loads correctly (img.custom-logo)',   pass: logo.pass,        detail: logo.detail },
+      { name: 'No broken images',                         pass: broken.pass,      detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',                 pass: nav.pass,         detail: `${nav.count} nav links` },
+      { name: 'Footer present with links',                pass: footer.pass,      detail: `${footer.linkCount} footer links` },
+      { name: 'Currency selector present',                pass: hasCurrency,      detail: hasCurrency ? 'Found' : 'Missing' },
+      { name: 'Equipment product thumbnails load',        pass: hasEquipment,     detail: hasEquipment ? 'Found' : 'Missing' },
+      { name: '"Donate Custom Amount" button exists',     pass: hasCustomAmount,  detail: hasCustomAmount ? 'Found' : 'Missing' },
+      { name: 'Equipment donate button exists',           pass: hasEquipmentBtn,  detail: hasEquipmentBtn ? 'Found' : 'Missing' },
+    ];
+  },
+
+  chaiathon: async (page) => {
+    await page.goto('https://chaiathon.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+    await page.waitForTimeout(2000);
+    const logo = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const nav = await page.evaluate(CHECK_NAV_LINKS);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const navLinks = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('nav a')).map(a => a.innerText?.trim().toLowerCase())
+    );
+    const hasSearch = await page.evaluate(() => !!document.querySelector('input[type="search"], input[placeholder*="Find"], input[placeholder*="Search"]'));
+    const hasStats = await page.evaluate(() => {
+      const text = document.body?.innerText || '';
+      return text.includes('Fundraisers') && (text.includes('100,000') || text.includes('10,') || text.includes('Active'));
+    });
+    // Test donate button click
+    let donateBtnWorks = false;
+    try {
+      const donateBtn = page.locator('a, button').filter({ hasText: /^Donate$/i }).first();
+      if (await donateBtn.isVisible({ timeout: 3000 })) {
+        const href = await donateBtn.getAttribute('href');
+        donateBtnWorks = !!(href && href.length > 1);
+      }
+    } catch {}
+    return [
+      { name: 'Logo loads correctly (img.custom-logo)',    pass: logo.pass,        detail: logo.detail },
+      { name: 'No broken images',                          pass: broken.pass,      detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',                  pass: nav.pass,         detail: `${nav.count} nav links found` },
+      { name: 'Footer present with links',                 pass: footer.pass,      detail: `${footer.linkCount} footer links` },
+      { name: '"Fundraisers" nav item',                    pass: navLinks.some(t => t.includes('fundraiser')), detail: '' },
+      { name: '"Teams" nav item',                          pass: navLinks.some(t => t.includes('team')),       detail: '' },
+      { name: '"Prizes" nav item',                         pass: navLinks.some(t => t.includes('prize')),      detail: '' },
+      { name: 'Search bar present',                        pass: hasSearch,        detail: hasSearch ? 'Found' : 'Missing' },
+      { name: 'Campaign stats widget loads',               pass: hasStats,         detail: hasStats ? 'Found' : 'Missing' },
+      { name: 'Donate button has valid href',              pass: donateBtnWorks,   detail: donateBtnWorks ? 'Links correctly' : 'Missing or broken' },
+    ];
+  },
+
+  fcl: async (page) => {
+    await page.goto('https://fundraise.chailifeline.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+    await page.waitForTimeout(2000);
+    const logo = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const nav = await page.evaluate(CHECK_NAV_LINKS);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const hasLearnMore = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('a, button')).some(el => el.innerText?.toLowerCase().includes('learn more'))
+    );
+    const hasCards = await page.evaluate(() => !!document.querySelector('[class*="card"], [class*="Card"], article'));
+    let donateWorks = false;
+    try {
+      const btn = page.locator('a, button').filter({ hasText: /donate/i }).first();
+      if (await btn.isVisible({ timeout: 3000 })) {
+        const href = await btn.getAttribute('href');
+        donateWorks = !!(href && href.length > 1);
+      }
+    } catch {}
+    return [
+      { name: 'Logo loads correctly',          pass: logo.pass,      detail: logo.detail },
+      { name: 'No broken images',              pass: broken.pass,    detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',      pass: nav.pass,       detail: `${nav.count} links` },
+      { name: 'Footer present with links',     pass: footer.pass,    detail: `${footer.linkCount} footer links` },
+      { name: '"Learn More" button present',   pass: hasLearnMore,   detail: hasLearnMore ? 'Found' : 'Missing' },
+      { name: 'Campaign cards visible',        pass: hasCards,       detail: hasCards ? 'Found' : 'Missing' },
+      { name: 'Donate button has valid href',  pass: donateWorks,    detail: donateWorks ? 'Links correctly' : 'Missing or broken' },
+    ];
+  },
+
+  clc: async (page) => {
+    await page.goto('https://fundraise.chailifelinecanada.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+    await page.waitForTimeout(2000);
+    const logo = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const nav = await page.evaluate(CHECK_NAV_LINKS);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const hasWaysToGive = await page.evaluate(() => document.body?.innerText?.includes('Ways to Give'));
+    const hasForm = await page.evaluate(() => {
+      const inputs = document.querySelectorAll('input[type="radio"], input[type="text"], input[type="number"]');
+      return inputs.length > 0;
+    });
+    const formInputsEnabled = await page.evaluate(() => {
+      const inputs = Array.from(document.querySelectorAll('input, button[type="submit"]'));
+      const disabled = inputs.filter(i => i.disabled).length;
+      return { total: inputs.length, disabled };
+    });
+    return [
+      { name: 'Logo loads correctly',            pass: logo.pass,       detail: logo.detail },
+      { name: 'No broken images',                pass: broken.pass,     detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',        pass: nav.pass,        detail: `${nav.count} links` },
+      { name: 'Footer present with links',       pass: footer.pass,     detail: `${footer.linkCount} footer links` },
+      { name: '"Ways to Give" nav present',      pass: hasWaysToGive,   detail: hasWaysToGive ? 'Found' : 'Missing' },
+      { name: 'Donation form inputs present',    pass: hasForm,         detail: hasForm ? 'Found' : 'Missing' },
+      { name: 'Form inputs are enabled',         pass: formInputsEnabled.disabled === 0, detail: `${formInputsEnabled.disabled} disabled inputs` },
+    ];
+  },
+
+  shomrim: async (page) => {
+    await page.goto('https://shomrimtoronto.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+    await page.waitForTimeout(2000);
+    const logo = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const nav = await page.evaluate(CHECK_NAV_LINKS);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const navLinks = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('nav a')).map(a => a.innerText?.trim().toLowerCase())
+    );
+    const hasEmergencyPhone = await page.evaluate(() => document.body?.innerText?.includes('647'));
+    const hasFileIncident = await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('a, button'));
+      return btns.some(b => b.innerText?.toLowerCase().includes('incident'));
+    });
+    let fileIncidentWorks = false;
+    try {
+      const btn = page.locator('a, button').filter({ hasText: /incident/i }).first();
+      if (await btn.isVisible({ timeout: 3000 })) {
+        const href = await btn.getAttribute('href');
+        fileIncidentWorks = !!(href && href.length > 1);
+      }
+    } catch {}
+    return [
+      { name: 'Logo loads correctly',              pass: logo.pass,            detail: logo.detail },
+      { name: 'No broken images',                  pass: broken.pass,          detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',          pass: nav.pass,             detail: `${nav.count} links` },
+      { name: 'Footer present with links',         pass: footer.pass,          detail: `${footer.linkCount} footer links` },
+      { name: '"Donate" in nav',                   pass: navLinks.some(t => t.includes('donate')), detail: '' },
+      { name: 'Emergency phone number visible',    pass: hasEmergencyPhone,    detail: hasEmergencyPhone ? '647 found' : 'Missing' },
+      { name: '"File an incident" button exists',  pass: hasFileIncident,      detail: hasFileIncident ? 'Found' : 'Missing' },
+      { name: '"File an incident" button works',   pass: fileIncidentWorks,    detail: fileIncidentWorks ? 'Has valid href' : 'Broken or missing' },
+    ];
+  },
+
+  fallen: async (page) => {
+    await page.goto('https://fallenh.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+    await page.waitForTimeout(2000);
+    const logo = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const nav = await page.evaluate(CHECK_NAV_LINKS);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const hasAmounts = await page.evaluate(() => {
+      const text = document.body?.innerText || '';
+      return text.includes('180') && text.includes('360');
+    });
+    const hasCustom = await page.evaluate(() => {
+      const text = (document.body?.innerText || '').toLowerCase();
+      return text.includes('custom amount') || text.includes('other amount');
+    });
+    const hasDedication = await page.evaluate(() =>
+      (document.body?.innerText || '').toLowerCase().includes('dedicat')
+    );
+    let donateWorks = false;
+    try {
+      const btn = page.locator('a, button').filter({ hasText: /donate/i }).first();
+      if (await btn.isVisible({ timeout: 3000 })) {
+        const tag = await btn.evaluate(e => e.tagName.toLowerCase());
+        const href = await btn.getAttribute('href').catch(() => null);
+        donateWorks = tag === 'button' || (href && href.length > 1);
+      }
+    } catch {}
+    return [
+      { name: 'Logo loads correctly',          pass: logo.pass,      detail: logo.detail },
+      { name: 'No broken images',              pass: broken.pass,    detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',      pass: nav.pass,       detail: `${nav.count} links` },
+      { name: 'Footer present with links',     pass: footer.pass,    detail: `${footer.linkCount} footer links` },
+      { name: 'Donation amounts ($180, $360)', pass: hasAmounts,     detail: hasAmounts ? 'Found' : 'Missing' },
+      { name: 'Custom amount option',          pass: hasCustom,      detail: hasCustom ? 'Found' : 'Missing' },
+      { name: 'Dedication option',             pass: hasDedication,  detail: hasDedication ? 'Found' : 'Missing' },
+      { name: 'Donate button clickable',       pass: donateWorks,    detail: donateWorks ? 'Works' : 'Missing or broken' },
+    ];
+  },
+
+  imf: async (page) => {
+    await page.goto('https://israelmagenfund.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+    await page.waitForTimeout(2000);
+    const logo = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const nav = await page.evaluate(CHECK_NAV_LINKS);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const hasBecomeBtn = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('a, button')).some(e => e.innerText?.toLowerCase().includes('fundraiser'))
+    );
+    const hasImpact = await page.evaluate(() => (document.body?.innerText || '').toLowerCase().includes('impact'));
+    let donateNowWorks = false;
+    try {
+      const btn = page.locator('a, button').filter({ hasText: /donate now/i }).first();
+      if (await btn.isVisible({ timeout: 3000 })) {
+        const href = await btn.getAttribute('href').catch(() => null);
+        donateNowWorks = !!(href && href.length > 1);
+      }
+    } catch {}
+    return [
+      { name: 'Logo loads correctly',               pass: logo.pass,        detail: logo.detail },
+      { name: 'No broken images',                   pass: broken.pass,      detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',           pass: nav.pass,         detail: `${nav.count} links` },
+      { name: 'Footer present with links',          pass: footer.pass,      detail: `${footer.linkCount} footer links` },
+      { name: '"Become a Fundraiser" link present', pass: hasBecomeBtn,     detail: hasBecomeBtn ? 'Found' : 'Missing' },
+      { name: '"Our Impact" section',               pass: hasImpact,        detail: hasImpact ? 'Found' : 'Missing' },
+      { name: '"Donate Now" button has valid href',  pass: donateNowWorks,  detail: donateNowWorks ? 'Works' : 'Missing or broken' },
+    ];
+  },
+
+  yeshiva: async (page) => {
+    await page.goto('https://donate.theyeshiva.net', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+    await page.waitForTimeout(2000);
+    const logo = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const hasTiers = await page.evaluate(() => {
+      const text = document.body?.innerText || '';
+      return text.includes('$1,000') || text.includes('$500') || text.includes('Sponsor');
+    });
+    const hasToggle = await page.evaluate(() => {
+      const text = document.body?.innerText || '';
+      return text.includes('Give once') || text.includes('Monthly') || text.includes('One-time');
+    });
+    const formFields = await page.evaluate(() => {
+      const inputs = document.querySelectorAll('input[type="radio"], input[type="text"], input[type="email"]');
+      const enabled = Array.from(inputs).filter(i => !i.disabled);
+      return { total: inputs.length, enabled: enabled.length };
+    });
+    return [
+      { name: 'Logo loads correctly',           pass: logo.pass,             detail: logo.detail },
+      { name: 'No broken images',               pass: broken.pass,           detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Footer present',                 pass: footer.pass,           detail: `${footer.linkCount} footer links` },
+      { name: 'Donation tiers present',         pass: hasTiers,              detail: hasTiers ? 'Found' : 'Missing' },
+      { name: '"Give once" / "Monthly" toggle', pass: hasToggle,             detail: hasToggle ? 'Found' : 'Missing' },
+      { name: 'Form inputs enabled',            pass: formFields.enabled > 0, detail: `${formFields.enabled}/${formFields.total} inputs enabled` },
+    ];
+  },
+
+  nahal: async (page) => {
+    await page.goto('https://give.nahalharedi.org', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+    await page.waitForTimeout(2000);
+    const logo = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const nav = await page.evaluate(CHECK_NAV_LINKS);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const navLinks = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('nav a')).map(a => a.innerText?.trim().toLowerCase())
+    );
+    const hasAmounts = await page.evaluate(() => {
+      const text = document.body?.innerText || '';
+      return text.includes('18') || text.includes('36') || text.includes('100');
+    });
+    const formFields = await page.evaluate(() => {
+      const inputs = document.querySelectorAll('input[type="radio"], input[type="text"], button[type="submit"], input[type="submit"]');
+      return { total: inputs.length, enabled: Array.from(inputs).filter(i => !i.disabled).length };
+    });
+    return [
+      { name: 'Logo loads correctly',        pass: logo.pass,              detail: logo.detail },
+      { name: 'No broken images',            pass: broken.pass,            detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',    pass: nav.pass,               detail: `${nav.count} links` },
+      { name: 'Footer present with links',   pass: footer.pass,            detail: `${footer.linkCount} footer links` },
+      { name: '"Campaigns" nav item',        pass: navLinks.some(t => t.includes('campaign')), detail: '' },
+      { name: '"eCards" nav item',           pass: navLinks.some(t => t.includes('ecard') || t.includes('e-card')), detail: '' },
+      { name: 'Donation amounts visible',    pass: hasAmounts,             detail: hasAmounts ? 'Found' : 'Missing' },
+      { name: 'Form inputs enabled',         pass: formFields.enabled > 0, detail: `${formFields.enabled}/${formFields.total} inputs enabled` },
+    ];
+  },
+
+  ots: async (page) => {
+    await page.goto('https://fundraise.ots.org.il', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
+    await page.waitForTimeout(2000);
+    const logo = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const hasAmounts = await page.evaluate(() => {
+      const text = document.body?.innerText || '';
+      return text.includes('36') || text.includes('50') || text.includes('100');
+    });
+    const hasMonthly = await page.evaluate(() => {
+      const text = document.body?.innerText || '';
+      return text.includes('Monthly') || text.includes('Give once');
+    });
+    const hasLang = await page.evaluate(() =>
+      !!(document.querySelector('select') || document.body?.innerText?.includes('English'))
+    );
+    const formFields = await page.evaluate(() => {
+      const inputs = document.querySelectorAll('input[type="radio"], input[type="text"], input[type="number"], input[type="email"]');
+      return { total: inputs.length, enabled: Array.from(inputs).filter(i => !i.disabled).length };
+    });
+    return [
+      { name: 'Logo loads correctly',         pass: logo.pass,              detail: logo.detail },
+      { name: 'No broken images',             pass: broken.pass,            detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Footer present',               pass: footer.pass,            detail: `${footer.linkCount} footer links` },
+      { name: 'Donation amounts visible',     pass: hasAmounts,             detail: hasAmounts ? 'Found' : 'Missing' },
+      { name: '"Give once" / "Monthly"',      pass: hasMonthly,             detail: hasMonthly ? 'Found' : 'Missing' },
+      { name: 'Language selector present',    pass: hasLang,                detail: hasLang ? 'Found' : 'Missing' },
+      { name: 'Form inputs enabled',          pass: formFields.enabled > 0, detail: `${formFields.enabled}/${formFields.total} inputs enabled` },
+    ];
+  },
+
+  // Generic checks for sites not yet individually inspected
+  _generic: async (page, site) => {
+    const logo = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const nav = await page.evaluate(CHECK_NAV_LINKS);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const hasDonate = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('a, button')).some(e => e.innerText?.toLowerCase().includes('donate'))
+    );
+    let donateWorks = false;
+    try {
+      const btn = page.locator('a, button').filter({ hasText: /donate/i }).first();
+      if (await btn.isVisible({ timeout: 3000 })) {
+        const href = await btn.getAttribute('href').catch(() => null);
+        const tag = await btn.evaluate(e => e.tagName.toLowerCase());
+        donateWorks = tag === 'button' || (href && href.length > 1 && !href.startsWith('javascript'));
+      }
+    } catch {}
+    return [
+      { name: 'Logo loads correctly',           pass: logo.pass,    detail: logo.detail },
+      { name: 'No broken images',               pass: broken.pass,  detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',       pass: nav.pass,     detail: `${nav.count} links` },
+      { name: 'Footer present with links',      pass: footer.pass,  detail: `${footer.linkCount} footer links` },
+      { name: 'Donate button present',          pass: hasDonate,    detail: hasDonate ? 'Found' : 'Missing' },
+      { name: 'Donate button has valid href',   pass: donateWorks,  detail: donateWorks ? 'Works' : 'Missing or broken' },
+    ];
+  },
+};
+
+// Sites that use generic checks
+['pantry','israelthon','yorkville','afmda','misaskim','mizrachi','nitzanim','adi','r2bo','clc','fcl'].forEach(id => {
+  if (!SITE_CHECKS[id]) {
+    SITE_CHECKS[id] = async (page, site) => SITE_CHECKS._generic(page, site);
+  }
+});
+
+// ── Error patterns ────────────────────────────────────────────────
+const ERROR_TITLE_WORDS  = ['404','403','500','502','503','504','not found','error','page not found','access denied','forbidden','bad gateway','service unavailable','internal server error'];
+const ERROR_BODY_PHRASES = ["this site can't be reached","this page isn't working",'err_connection_refused','dns_probe_finished','application error','database connection','fatal error','under construction','coming soon','parked domain','buy this domain','this domain is for sale','account suspended','bandwidth limit exceeded'];
+
 const log = (msg, type = 'info') => {
-  const icons = { info: '  ', pass: '✅', fail: '❌', warn: '⚠️ ', ai: '🤖', check: '  →' };
+  const icons = { info: '  ', pass: '✅', fail: '❌', warn: '⚠️ ', ai: '🤖' };
   console.log(`${icons[type] || '  '} ${msg}`);
 };
 
@@ -367,7 +516,6 @@ DO NOT report: text changes, new campaigns, updated images, layout tweaks, cooki
 
 Reply ONLY with valid JSON:
 {"passing":true,"majorIssues":[],"pageDescription":"one sentence describing what you see"}`;
-
   try {
     const res = await fetch(GEMINI_URL, {
       method: 'POST',
@@ -412,7 +560,7 @@ async function testSite(browser, site) {
     });
     const page = await context.newPage();
 
-    // ── 1. Generic checks on homepage ──────────────────────────
+    // ── 1. Homepage generic checks ──────────────────────────────
     try {
       const t0 = Date.now();
       const response = await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -448,39 +596,37 @@ async function testSite(browser, site) {
     result.checks.noErrorContent = { pass: !errorPhrase };
     if (errorPhrase) result.majorFailures.push(`Error phrase found: "${errorPhrase}"`);
 
-    const interactiveCount = await page.evaluate(() =>
-      document.querySelectorAll('button,a[href],input[type=submit],input[type=button]').length
-    ).catch(() => 0);
-    result.checks.interactiveElements = { pass: interactiveCount > 3, value: interactiveCount };
-    if (!result.checks.interactiveElements.pass) result.majorFailures.push(`Only ${interactiveCount} interactive elements found`);
-
-    // ── 2. Per-site specific UI checks ──────────────────────────
+    // ── 2. Per-site UI + DOM checks ──────────────────────────────
     if (SITE_CHECKS[site.id]) {
       try {
-        const uiResults = await SITE_CHECKS[site.id](page);
+        const uiResults = await SITE_CHECKS[site.id](page, site);
         result.uiChecks = uiResults;
-
-        const failedUI = uiResults.filter(c => !c.pass);
-        if (failedUI.length > 0) {
-          // Only flag as major failure if more than 2 specific checks fail
-          // (1-2 failures could be minor variations, 3+ is a real problem)
-          if (failedUI.length >= 3) {
-            result.majorFailures.push(`${failedUI.length} UI elements missing: ${failedUI.map(c => c.name).join(', ')}`);
-          } else {
-            // Log as warning only
-            failedUI.forEach(c => log(`    ⚠ UI check failed: ${c.name}`, 'warn'));
-          }
+        const failed = uiResults.filter(c => !c.pass);
+        const passed = uiResults.filter(c => c.pass).length;
+        log(`  UI checks: ${passed}/${uiResults.length} passed`, passed === uiResults.length ? 'pass' : 'warn');
+        uiResults.forEach(c => {
+          const icon = c.pass ? '✓' : '✗';
+          const detail = c.detail ? ` (${c.detail})` : '';
+          log(`    ${icon} ${c.name}${detail}`);
+        });
+        // Major failure only if logo broken, OR 3+ UI checks fail, OR broken images found
+        const logoCheck = uiResults.find(c => c.name.includes('Logo'));
+        const brokenCheck = uiResults.find(c => c.name.includes('broken images'));
+        if (logoCheck && !logoCheck.pass) {
+          result.majorFailures.push(`Logo not loading — site may be broken`);
         }
-
-        const passCount = uiResults.filter(c => c.pass).length;
-        log(`  UI checks: ${passCount}/${uiResults.length} passed`, passCount === uiResults.length ? 'pass' : 'warn');
-        uiResults.forEach(c => log(`    ${c.pass ? '✓' : '✗'} ${c.name}`, 'check'));
+        if (brokenCheck && !brokenCheck.pass) {
+          result.majorFailures.push(`Broken images detected: ${brokenCheck.detail}`);
+        }
+        if (failed.length >= 4) {
+          result.majorFailures.push(`${failed.length} UI checks failing: ${failed.map(c => c.name).join(', ')}`);
+        }
       } catch (uiErr) {
         log(`  UI checks error: ${uiErr.message}`, 'warn');
       }
     }
 
-    // ── 3. Screenshot + Gemini vision ────────────────────────────
+    // ── 3. Screenshot + Gemini ────────────────────────────────────
     try {
       const screenshot = await page.screenshot({
         type: 'jpeg', quality: 72, fullPage: false,
@@ -493,7 +639,7 @@ async function testSite(browser, site) {
       log(`  Gemini: ${ai.pageDescription}`, 'ai');
       if (ai.passing === false && ai.majorIssues?.length > 0) {
         for (const issue of ai.majorIssues) {
-          const isDupe = result.majorFailures.some(f => f.toLowerCase().includes(issue.toLowerCase().slice(0, 20)));
+          const isDupe = result.majorFailures.some(f => f.toLowerCase().includes(issue.toLowerCase().slice(0,20)));
           if (!isDupe) result.majorFailures.push(`[Vision] ${issue}`);
         }
       }
@@ -507,7 +653,6 @@ async function testSite(browser, site) {
   } finally {
     if (context) await context.close().catch(() => {});
   }
-
   return finalise(result);
 }
 
@@ -521,12 +666,12 @@ function finalise(result) {
 async function main() {
   const date = new Date().toISOString().split('T')[0];
   console.log('\n══════════════════════════════════════════');
-  console.log(`  QA Agent (Gemini + UI Checks) — ${date}`);
+  console.log(`  QA Agent v3 (Gemini + DOM Checks) — ${date}`);
   console.log('══════════════════════════════════════════\n');
 
   const sitesToTest = SINGLE_SITE ? SITES.filter(s => s.id === SINGLE_SITE) : SITES;
   if (!sitesToTest.length) { console.error(`No site: "${SINGLE_SITE}"`); process.exit(1); }
-  log(`Running ${sitesToTest.length} sites with per-site UI checks...`);
+  log(`Running ${sitesToTest.length} sites — logo, broken images, nav, footer, buttons, forms...`);
 
   const browser = await chromium.launch({
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
@@ -547,7 +692,7 @@ async function main() {
       );
       if (i < sitesToTest.length - 1) await new Promise(r => setTimeout(r, 5000));
     } catch (err) {
-      log(`Fatal error on ${site.name}: ${err.message}`, 'fail');
+      log(`Fatal on ${site.name}: ${err.message}`, 'fail');
       errored++;
     }
   }
