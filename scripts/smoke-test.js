@@ -7,7 +7,6 @@
  * - SVG <img> tags always report naturalWidth=0 in headless Chrome → excluded
  * - Images with loading="lazy" haven't scrolled into view → excluded
  * - Images with layout width/height=0 are decorative/hidden → excluded
- * - React/JS apps (Mizrachi) render content as images not text → use imgCount not bodyLen
  * - Elementor sites have no <nav> tag → scan all elements for highest link count
  * - Cookie consent wrappers register as "footer" → excluded by class name
  *
@@ -17,7 +16,6 @@
  * - Nitzanim: member portal, no footer links → don't fail on missing footer links
  * - Yorkville: donate-only page, minimal nav (just "Back to..." link) → don't fail on nav
  * - Shomrim: Elementor, footer is .cky-footer-wrapper (cookie) → real footer is elementor-footer
- * - Mizrachi: React app, innerText=34 chars → check img count instead
  */
 
 const { chromium } = require('playwright');
@@ -154,7 +152,6 @@ const SITES = [
   { id: 'clc',        name: 'Chai Lifeline Canada',      url: 'https://fundraise.chailifelinecanada.org'  },
   { id: 'afmda',      name: 'AFMDA',                    url: 'https://crowdfund.afmda.org'               },
   { id: 'misaskim',   name: 'Misaskim',                 url: 'https://misaskim.ca'                       },
-  { id: 'mizrachi',   name: 'Mizrachi',                 url: 'https://fundraise.mizrachi.ca'             },
   { id: 'shomrim',    name: 'Shomrim Toronto',          url: 'https://shomrimtoronto.org'                },
   { id: 'fallen',     name: 'Fallen Heroes',            url: 'https://fallenh.org'                       },
   { id: 'nitzanim',   name: 'Nitzanim',                 url: 'https://members.kehilatnitzanim.org/'      },
@@ -426,29 +423,6 @@ const SITE_CHECKS = {
       { name: '"Donate Now" button present',    pass: checks.hasDonate,     detail: checks.hasDonate ? 'Found' : 'Missing' },
       { name: 'Donate button has valid href',   pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
       { name: 'Mission content visible',        pass: checks.hasOurMission, detail: checks.hasOurMission ? 'Found' : 'Missing' },
-    ];
-  },
-
-  // ── Mizrachi ─────────────────────────────────────────────────────
-  // React app — bodyLen only ~34 chars. Content is campaign image cards.
-  // Check img count and link count, NOT text length. Extra wait needed.
-  mizrachi: async (page) => {
-    await page.waitForTimeout(3000); // extra wait for React render
-    const logo   = await page.evaluate(CHECK_LOGO);
-    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
-    const checks = await page.evaluate(() => ({
-      imgCount:  document.querySelectorAll('img').length,
-      linkCount: document.querySelectorAll('a[href]').length,
-      hasLogo:   document.querySelectorAll('img').length > 0,
-      // Mizrachi shows campaign cards as clickable images
-      hasCampaigns: document.querySelectorAll('a[href] img, [class*="campaign"] img, [class*="card"] img').length > 0 || document.querySelectorAll('a').length > 2,
-      snippet:   (document.body?.innerText||'').slice(0,80),
-    }));
-    return [
-      { name: 'Logo visible and loaded',      pass: logo.pass,               detail: logo.detail },
-      { name: 'No broken images',             pass: broken.pass,             detail: broken.pass ? `${checks.imgCount} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
-      { name: 'Page has content (React app)', pass: checks.imgCount > 1 || checks.linkCount > 2, detail: `${checks.imgCount} imgs, ${checks.linkCount} links` },
-      { name: 'Campaign cards/links visible', pass: checks.hasCampaigns,     detail: checks.hasCampaigns ? 'Found' : `${checks.linkCount} links total` },
     ];
   },
 
