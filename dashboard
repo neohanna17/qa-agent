@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA Dashboard — Daily Automated Results</title>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d10;color:#e4e4ef;font-family:'DM Mono','Fira Code',monospace;font-size:13px;min-height:100vh}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:#0d0d10}::-webkit-scrollbar-thumb{background:#2a2a35;border-radius:2px}
+a{color:#60a5fa;text-decoration:none}
+.wrap{max-width:1060px;margin:0 auto;padding:24px 20px}
+/* Header */
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:12px}
+.title{font-size:15px;font-weight:500}
+.sub{color:#6b6b80;font-size:11px}
+.badge{font-size:9px;padding:2px 7px;border-radius:20px;border:1px solid;white-space:nowrap}
+.badge-pass{color:#22c55e;border-color:#22c55e}
+.badge-fail{color:#f87171;border-color:#f87171}
+.badge-warn{color:#f59e0b;border-color:#f59e0b}
+.badge-muted{color:#6b6b80;border-color:#2a2a35}
+/* Stats row */
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:24px}
+@media(max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:#16161a;border:1px solid #2a2a35;border-radius:8px;padding:12px 14px}
+.stat-l{color:#6b6b80;font-size:10px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
+.stat-v{font-size:20px;font-weight:500}
+/* Failures alert */
+.alert{background:#f8717110;border:1px solid #f8717130;border-radius:10px;padding:16px 20px;margin-bottom:20px}
+.alert-title{color:#f87171;font-weight:500;font-size:13px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.failure-item{border-left:2px solid #f87171;padding:8px 0 8px 14px;margin-bottom:10px}
+.failure-item:last-child{margin-bottom:0}
+.failure-site{font-weight:500;font-size:12px;margin-bottom:4px}
+.failure-url{color:#6b6b80;font-size:10px;margin-bottom:6px}
+.failure-issue{color:#fca5a5;font-size:11px;line-height:1.6;display:flex;gap:6px;align-items:flex-start}
+.failure-issue::before{content:"→";flex-shrink:0;color:#f87171}
+/* All clear */
+.all-clear{background:#22c55e10;border:1px solid #22c55e30;border-radius:10px;padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:12px;color:#22c55e;font-size:12px}
+/* Site grid */
+.sites{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.site-card{background:#16161a;border:1px solid #2a2a35;border-radius:10px;padding:14px;transition:border-color .15s;cursor:pointer}
+.site-card:hover{border-color:#343442}
+.site-card.fail{border-color:#f8717130}
+.site-card.pass{border-color:#22c55e20}
+.site-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px}
+.site-name{font-weight:500;font-size:12px}
+.site-url{color:#6b6b80;font-size:9px;margin-top:2px}
+.site-checks{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+.check-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0;position:relative}
+.check-dot:hover::after{content:attr(title);position:absolute;left:12px;top:-4px;background:#16161a;border:1px solid #343442;border-radius:4px;padding:4px 8px;font-size:10px;white-space:nowrap;z-index:10;pointer-events:none}
+.site-ai{font-size:10px;color:#6b6b80;line-height:1.5;margin-top:6px;border-top:1px solid #1a1a20;padding-top:6px}
+.site-ai.fail{color:#fca5a5}
+.site-issues{margin-top:6px}
+.site-issue{font-size:10px;color:#f87171;line-height:1.5;display:flex;gap:5px}
+.site-issue::before{content:"!";flex-shrink:0;width:13px;height:13px;background:#f8717120;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:9px}
+/* Controls */
+.controls{display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+.date-input{background:#16161a;border:1px solid #2a2a35;color:#e4e4ef;border-radius:6px;padding:5px 8px;font-family:inherit;font-size:12px;outline:none}
+.date-input::-webkit-calendar-picker-indicator{filter:invert(1) opacity(.4);cursor:pointer}
+.btn{background:transparent;border:1px solid #2a2a35;color:#6b6b80;border-radius:6px;padding:5px 12px;font-family:inherit;font-size:11px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:5px}
+.btn:hover{border-color:#343442;color:#e4e4ef}
+.btn-run{background:#e4e4ef;border:none;color:#0d0d10;font-weight:500;padding:6px 14px}
+.btn-run:hover{background:#fff}
+.btn-run:disabled{background:#2e2e3c;color:#6b6b80;cursor:not-allowed}
+.loader{display:inline-block;width:10px;height:10px;border:1.5px solid #343442;border-top-color:#e4e4ef;border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* Run info */
+.run-meta{font-size:10px;color:#6b6b80;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.dot-live{width:6px;height:6px;border-radius:50%;background:#22c55e;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+/* History */
+.history{margin-top:28px;padding-top:20px;border-top:1px solid #2a2a35}
+.history-title{color:#6b6b80;font-size:10px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px}
+.history-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #16161a;font-size:11px}
+.history-date{color:#6b6b80;width:90px;flex-shrink:0}
+.history-bar{flex:1;display:flex;gap:3px}
+.h-seg{height:4px;border-radius:1px}
+/* Modal */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal{background:#16161a;border:1px solid #2a2a35;border-radius:12px;padding:22px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px}
+.modal-name{font-weight:500;font-size:14px}
+.modal-url{color:#6b6b80;font-size:10px;margin-top:3px}
+.modal-close{background:transparent;border:none;color:#6b6b80;font-size:18px;cursor:pointer;padding:0;line-height:1}
+.modal-close:hover{color:#e4e4ef}
+.check-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a1a20;font-size:11px}
+.check-row:last-child{border:none}
+.check-label{color:#6b6b80}
+.check-val{font-size:10px}
+.check-pass{color:#22c55e}
+.check-fail{color:#f87171}
+.no-data{color:#6b6b80;font-size:12px;text-align:center;padding:40px 0}
+.loading-overlay{position:fixed;inset:0;background:#0d0d1099;display:flex;align-items:center;justify-content:center;z-index:200;font-size:12px;color:#6b6b80;gap:10px}
+</style>
+</head>
+<body>
+<div id="loadingOverlay" class="loading-overlay"><div class="loader"></div> Loading results…</div>
+<div class="wrap">
+
+  <div class="topbar">
+    <div>
+      <div class="title">QA Dashboard <span style="color:#6b6b80;font-size:11px;margin-left:4px">/ automated agent</span></div>
+      <div class="sub" id="runMeta">Loading…</div>
+    </div>
+    <div class="controls">
+      <input type="date" class="date-input" id="dateInput" />
+      <button class="btn" onclick="loadDate()">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        Load
+      </button>
+      <a href="runner.html" class="btn">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Manual runner
+      </a>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat"><div class="stat-l">sites tested</div><div class="stat-v" id="statTotal">—</div></div>
+    <div class="stat"><div class="stat-l">passed</div><div class="stat-v" id="statPassed" style="color:#22c55e">—</div></div>
+    <div class="stat"><div class="stat-l">failed</div><div class="stat-v" id="statFailed" style="color:#f87171">—</div></div>
+    <div class="stat"><div class="stat-l">last run</div><div class="stat-v" id="statTime" style="font-size:13px">—</div></div>
+    <div class="stat"><div class="stat-l">next run</div><div class="stat-v" id="statNext" style="font-size:13px">—</div></div>
+  </div>
+
+  <!-- Failure alert / all clear -->
+  <div id="failureAlert" style="display:none"></div>
+  <div id="allClear" class="all-clear" style="display:none">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    All sites healthy — no major failures detected today
+  </div>
+
+  <!-- Site grid -->
+  <div class="sites" id="siteGrid"></div>
+
+  <!-- History -->
+  <div class="history">
+    <div class="history-title">Recent runs</div>
+    <div id="historyList"><div class="no-data">Loading history…</div></div>
+  </div>
+
+</div>
+
+<!-- Site detail modal -->
+<div class="modal-bg" id="modal" onclick="closeModal(event)">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<script>
+firebase.initializeApp({databaseURL:"https://qa-tracker-73b87-default-rtdb.firebaseio.com"});
+const db = firebase.database();
+
+const SITES = [
+  {id:'pantry',name:'Pantry Packers',url:'https://give.pantrypackers.org/',color:'#b45309'},
+  {id:'israelthon',name:'Israelthon',url:'https://israelthon.org/',color:'#2563eb'},
+  {id:'yorkville',name:'Yorkville Jewish Centre',url:'https://donate.yorkvillejewishcentre.com/',color:'#4f46e5'},
+  {id:'chaiathon',name:'Chaiathon',url:'https://chaiathon.org',color:'#a855f7'},
+  {id:'fcl',name:'Chai Lifeline USA',url:'https://fundraise.chailifeline.org',color:'#f97316'},
+  {id:'uh',name:'United Hatzalah',url:'https://israelrescue.org',color:'#3b82f6'},
+  {id:'clc',name:'Chai Lifeline Canada',url:'https://fundraise.chailifelinecanada.org',color:'#22c55e'},
+  {id:'afmda',name:'AFMDA',url:'https://crowdfund.afmda.org',color:'#dc2626'},
+  {id:'misaskim',name:'Misaskim',url:'https://misaskim.ca',color:'#0891b2'},
+  {id:'mizrachi',name:'Mizrachi',url:'https://fundraise.mizrachi.ca',color:'#7c3aed'},
+  {id:'shomrim',name:'Shomrim Toronto',url:'https://shomrimtoronto.org',color:'#0284c7'},
+  {id:'fallen',name:'Fallen Heroes',url:'https://fallenh.org',color:'#1d4ed8'},
+  {id:'nitzanim',name:'Nitzanim',url:'https://members.kehilatnitzanim.org/',color:'#d97706'},
+  {id:'imf',name:'Israel Magen Fund',url:'https://israelmagenfund.org/',color:'#e11d48'},
+  {id:'adi',name:'ADI',url:'https://adi-il.org/',color:'#f43f5e'},
+  {id:'yeshiva',name:'The Yeshiva',url:'https://donate.theyeshiva.net',color:'#6d28d9'},
+  {id:'nahal',name:'Nahal Haredi',url:'https://give.nahalharedi.org/',color:'#15803d'},
+  {id:'r2bo',name:'Race to Bais Olami',url:'https://racetobais.olami.org/',color:'#c2410c'},
+  {id:'ots',name:'Ohr Torah Stone',url:'https://fundraise.ots.org.il/',color:'#92400e'},
+];
+
+const CHECK_LABELS = {
+  httpStatus: 'HTTP response',
+  pageTitle: 'Page title',
+  contentLength: 'Page content',
+  noErrorContent: 'No error text',
+  h1Content: 'Heading',
+  hasInteractiveElements: 'Interactive elements',
+  hasFundraisingContent: 'Fundraising content',
+  loadTimeMs: 'Load time',
+};
+
+let currentData = {};
+let currentDate = '';
+
+// Init date to today
+const di = document.getElementById('dateInput');
+di.value = new Date().toISOString().split('T')[0];
+
+async function loadDate() {
+  const date = di.value;
+  if (!date) return;
+  currentDate = date;
+  document.getElementById('loadingOverlay').style.display = 'flex';
+  const snap = await db.ref(`autoResults/${date}`).get();
+  const data = snap.val() || {};
+  currentData = data;
+  render(date, data);
+  document.getElementById('loadingOverlay').style.display = 'none';
+}
+
+async function loadLatest() {
+  const snap = await db.ref('autoLatest').get();
+  const latest = snap.val();
+  if (latest?.date) {
+    di.value = latest.date;
+    currentDate = latest.date;
+    const rsnap = await db.ref(`autoResults/${latest.date}`).get();
+    const data = rsnap.val() || {};
+    currentData = data;
+    render(latest.date, data, latest);
+  } else {
+    // No runs yet — show empty state
+    render(di.value, {});
+  }
+  document.getElementById('loadingOverlay').style.display = 'none';
+  loadHistory();
+}
+
+function render(date, data, summary) {
+  const sites = SITES;
+  const results = sites.map(s => ({ site: s, result: data[s.id] || null }));
+  const tested = results.filter(r => r.result).length;
+  const passed = results.filter(r => r.result?.status === 'pass').length;
+  const failed = results.filter(r => r.result?.status === 'fail' || r.result?.status === 'error').length;
+  const failures = results.filter(r => r.result?.majorFailures?.length > 0);
+
+  // Stats
+  document.getElementById('statTotal').textContent = tested ? `${tested}/${sites.length}` : '—';
+  document.getElementById('statPassed').textContent = tested ? passed : '—';
+  document.getElementById('statFailed').textContent = tested ? failed : '—';
+
+  if (summary?.runAt) {
+    const t = new Date(summary.runAt);
+    document.getElementById('statTime').textContent = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  } else if (tested > 0) {
+    const firstRun = results.find(r => r.result?.runAt);
+    if (firstRun) {
+      const t = new Date(firstRun.result.runAt);
+      document.getElementById('statTime').textContent = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    }
+  } else {
+    document.getElementById('statTime').textContent = 'Not run yet';
+  }
+
+  // Next run: 6am UTC tomorrow
+  const nextRun = new Date();
+  nextRun.setUTCHours(6, 0, 0, 0);
+  if (nextRun <= new Date()) nextRun.setUTCDate(nextRun.getUTCDate() + 1);
+  const hrs = Math.round((nextRun - new Date()) / 3600000);
+  document.getElementById('statNext').textContent = `in ~${hrs}h`;
+
+  // Run meta
+  document.getElementById('runMeta').innerHTML = tested
+    ? `<div class="run-meta"><div class="dot-live"></div> Auto-runs daily at 6am UTC · ${date}</div>`
+    : `<div class="run-meta">No data for ${date} — runs daily at 6am UTC</div>`;
+
+  // Failure alert
+  const alertEl = document.getElementById('failureAlert');
+  const clearEl = document.getElementById('allClear');
+  if (failures.length > 0) {
+    alertEl.style.display = '';
+    clearEl.style.display = 'none';
+    alertEl.innerHTML = `
+      <div class="alert">
+        <div class="alert-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          ${failures.length} site${failures.length>1?'s':''} with major failures — ${date}
+        </div>
+        ${failures.map(r => `
+          <div class="failure-item">
+            <div class="failure-site">${r.site.name}</div>
+            <div class="failure-url">${r.site.url}</div>
+            ${r.result.majorFailures.map(f => `<div class="failure-issue">${f}</div>`).join('')}
+          </div>
+        `).join('')}
+      </div>`;
+  } else if (tested > 0) {
+    alertEl.style.display = 'none';
+    clearEl.style.display = 'flex';
+  } else {
+    alertEl.style.display = 'none';
+    clearEl.style.display = 'none';
+  }
+
+  // Site grid
+  const grid = document.getElementById('siteGrid');
+  grid.innerHTML = '';
+  for (const { site, result } of results) {
+    const card = document.createElement('div');
+    const hasFail = result?.majorFailures?.length > 0;
+    const status = result ? (hasFail ? 'fail' : 'pass') : 'none';
+    card.className = `site-card ${hasFail ? 'fail' : result ? 'pass' : ''}`;
+    card.onclick = () => showModal(site, result);
+
+    const statusBadge = result
+      ? `<span class="badge ${hasFail ? 'badge-fail' : 'badge-pass'}">${hasFail ? `✗ ${result.majorFailures.length} issue${result.majorFailures.length>1?'s':''}` : '✓ Pass'}</span>`
+      : `<span class="badge badge-muted">Not run</span>`;
+
+    const checkDots = result?.checks ? Object.entries(result.checks).slice(0,8).map(([k,v]) =>
+      `<div class="check-dot" style="background:${v.pass ? '#22c55e' : '#f87171'}" title="${CHECK_LABELS[k]||k}: ${v.pass ? 'pass' : 'fail'}"></div>`
+    ).join('') : '';
+
+    const aiDesc = result?.aiAnalysis?.pageDescription || '';
+    const aiPass = result?.aiAnalysis?.passing;
+
+    card.innerHTML = `
+      <div class="site-head">
+        <div>
+          <div style="display:flex;align-items:center;gap:7px">
+            <div style="width:7px;height:7px;border-radius:50%;background:${site.color};flex-shrink:0"></div>
+            <div class="site-name">${site.name}</div>
+          </div>
+          <div class="site-url">${site.url}</div>
+        </div>
+        ${statusBadge}
+      </div>
+      ${checkDots ? `<div class="site-checks">${checkDots}</div>` : ''}
+      ${aiDesc ? `<div class="site-ai ${!aiPass && aiPass!==null ? 'fail' : ''}">${aiDesc}</div>` : ''}
+      ${hasFail ? `<div class="site-issues">${result.majorFailures.map(f=>`<div class="site-issue">${f}</div>`).join('')}</div>` : ''}
+    `;
+    grid.appendChild(card);
+  }
+}
+
+function showModal(site, result) {
+  const modal = document.getElementById('modalContent');
+  if (!result) {
+    modal.innerHTML = `
+      <div class="modal-head">
+        <div>
+          <div class="modal-name">${site.name}</div>
+          <div class="modal-url"><a href="${site.url}" target="_blank">${site.url}</a></div>
+        </div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="no-data">No test data for this site on ${currentDate}</div>`;
+  } else {
+    const checks = result.checks || {};
+    const runTime = result.runAt ? new Date(result.runAt).toLocaleString() : '—';
+    modal.innerHTML = `
+      <div class="modal-head">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:8px;height:8px;border-radius:50%;background:${site.color}"></div>
+            <div class="modal-name">${site.name}</div>
+            <span class="badge ${result.status==='pass'?'badge-pass':'badge-fail'}">${result.status.toUpperCase()}</span>
+          </div>
+          <div class="modal-url"><a href="${site.url}" target="_blank">${site.url}</a></div>
+        </div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div style="font-size:10px;color:#6b6b80;margin-bottom:14px">Run at ${runTime}</div>
+      ${result.majorFailures?.length ? `
+        <div style="background:#f8717110;border:1px solid #f8717130;border-radius:8px;padding:12px 14px;margin-bottom:14px">
+          <div style="color:#f87171;font-weight:500;font-size:11px;margin-bottom:8px">Major failures</div>
+          ${result.majorFailures.map(f=>`<div style="color:#fca5a5;font-size:11px;padding:3px 0;display:flex;gap:6px"><span style="color:#f87171;flex-shrink:0">→</span>${f}</div>`).join('')}
+        </div>` : ''}
+      ${result.aiAnalysis ? `
+        <div style="background:#60a5fa10;border:1px solid #60a5fa20;border-radius:8px;padding:12px 14px;margin-bottom:14px">
+          <div style="color:#60a5fa;font-size:10px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">AI analysis</div>
+          <div style="font-size:11px;color:#e4e4ef;line-height:1.6">${result.aiAnalysis.pageDescription || '—'}</div>
+        </div>` : ''}
+      <div style="font-size:10px;color:#6b6b80;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Checks</div>
+      ${Object.entries(checks).map(([k,v]) => `
+        <div class="check-row">
+          <span class="check-label">${CHECK_LABELS[k]||k}</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${v.value !== undefined && v.value !== null ? `<span style="color:#6b6b80;font-size:10px">${typeof v.value === 'number' && k==='loadTimeMs' ? v.value+'ms' : String(v.value).slice(0,40)}</span>` : ''}
+            <span class="check-val ${v.pass ? 'check-pass' : 'check-fail'}">${v.pass ? '✓' : '✗'}</span>
+          </div>
+        </div>`).join('')}`;
+  }
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal(e) {
+  if (!e || e.target === document.getElementById('modal')) {
+    document.getElementById('modal').classList.remove('open');
+  }
+}
+
+async function loadHistory() {
+  const snap = await db.ref('autoSummary').limitToLast(14).get();
+  const data = snap.val() || {};
+  const rows = Object.entries(data).reverse();
+  const el = document.getElementById('historyList');
+  if (rows.length === 0) { el.innerHTML = '<div class="no-data" style="padding:16px 0">No history yet — history appears after the first automated run</div>'; return; }
+  el.innerHTML = rows.map(([date, s]) => {
+    const pass = s.passed || 0;
+    const fail = s.failed || 0;
+    const total = s.totalSites || 19;
+    const pct = Math.round(pass/total*100);
+    return `
+      <div class="history-row" onclick="di.value='${date}';loadDate()" style="cursor:pointer">
+        <div class="history-date">${date}</div>
+        <div class="history-bar">
+          <div class="h-seg" style="width:${pct}%;background:#22c55e30;min-width:${pass?4:0}px"></div>
+          <div class="h-seg" style="width:${100-pct}%;background:${fail?'#f8717130':'#2a2a35'};min-width:${fail?4:0}px"></div>
+        </div>
+        <span class="badge ${fail?'badge-fail':'badge-pass'}" style="flex-shrink:0">${fail?`${fail} failed`:`All passed`}</span>
+      </div>`;
+  }).join('');
+}
+
+// Live listener for today's data
+function startLiveListener(date) {
+  db.ref(`autoResults/${date}`).on('value', snap => {
+    const data = snap.val() || {};
+    if (Object.keys(data).length > 0 && date === di.value) {
+      currentData = data;
+      render(date, data);
+    }
+  });
+}
+
+// Init
+loadLatest().then(() => {
+  startLiveListener(di.value);
+});
+</script>
+</body>
+</html>
