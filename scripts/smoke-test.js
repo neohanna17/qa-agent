@@ -29,7 +29,7 @@ const GEMINI_KEY     = process.env.GEMINI_API_KEY || '';
 const SINGLE_SITE    = process.env.SINGLE_SITE   || '';
 const SCREENSHOT_DIR = '/tmp/qa-screenshots';
 const GEMINI_MODEL        = 'gemini-2.0-flash';
-const GEMINI_MODEL_FALLBACK = 'gemini-1.5-flash-8b'; // separate quota bucket — used if primary hits 429
+const GEMINI_MODEL_FALLBACK = 'gemini-1.5-flash'; // fallback model on 429 (separate quota bucket)
 const GEMINI_URL      = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
 const GEMINI_URL_FALLBACK = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_FALLBACK}:generateContent?key=${GEMINI_KEY}`;
 
@@ -177,7 +177,11 @@ const SITE_CHECKS = {
   uh: async (page) => {
     await page.goto('https://israelrescue.org/donate', { waitUntil: 'domcontentloaded', timeout: 30000 });
     try { await page.waitForLoadState('networkidle', { timeout: 10000 }); } catch {}
-    await page.waitForTimeout(3000);
+    // Equipment + currency are JS-rendered — wait for actual DOM element, not just a timer
+    // timeSinceLoad on real page shows content at ~11s; headless may need longer
+    try { await page.waitForSelector('.levcharity_donation_equipments_wrapper, .donation_equipment_product_thumbnail', { timeout: 15000 }); } catch {}
+    try { await page.waitForSelector('select.switch_currency, select', { timeout: 5000 }); } catch {}
+    await page.waitForTimeout(2000);
     const logo    = await page.evaluate(CHECK_LOGO);
     const broken  = await page.evaluate(CHECK_BROKEN_IMAGES);
     const footer  = await page.evaluate(CHECK_FOOTER);
