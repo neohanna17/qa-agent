@@ -2,13 +2,11 @@ name: Daily QA Smoke Tests
 
 on:
   schedule:
-    # Runs every day at 6:00 AM UTC (8am Israel time, 9am South Africa time)
     - cron: '0 6 * * *'
-  # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
     inputs:
       site_id:
-        description: 'Run a single site by ID (leave empty for all sites)'
+        description: 'Run a single site by ID (leave empty to run all sites)'
         required: false
         default: ''
 
@@ -22,11 +20,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '24'
 
       - name: Install dependencies
         run: npm install
@@ -36,7 +33,7 @@ jobs:
 
       - name: Run smoke tests
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
           SINGLE_SITE: ${{ github.event.inputs.site_id }}
         run: node scripts/smoke-test.js
@@ -45,6 +42,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: failure-screenshots
+          name: failure-screenshots-${{ github.run_id }}
           path: /tmp/qa-screenshots/
           retention-days: 7
