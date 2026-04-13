@@ -25,6 +25,13 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Show file structure
+        run: |
+          echo "=== ROOT ==="
+          ls -la
+          echo "=== SCRIPTS FOLDER ==="
+          ls -la scripts/ || echo "NO SCRIPTS FOLDER FOUND"
+
       - name: Install dependencies
         run: npm install
 
