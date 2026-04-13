@@ -22,17 +22,16 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
-const FIREBASE_URL   = (process.env.FIREBASE_DATABASE_URL || '').replace(/\/$/, '');
-const GEMINI_KEY     = process.env.GEMINI_API_KEY || '';
-const SINGLE_SITE    = process.env.SINGLE_SITE   || '';
-const SCREENSHOT_DIR = '/tmp/qa-screenshots';
-const GEMINI_MODEL        = 'gemini-2.0-flash';
-const GEMINI_MODEL_FALLBACK = 'gemini-2.0-flash-lite'; // fallback on 429 — separate quota bucket from gemini-2.0-flash
-const GEMINI_URL      = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
-const GEMINI_URL_FALLBACK = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_FALLBACK}:generateContent?key=${GEMINI_KEY}`;
+const FIREBASE_URL    = (process.env.FIREBASE_DATABASE_URL || '').replace(/\/$/, '');
+const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY || '';
+const SINGLE_SITE     = process.env.SINGLE_SITE || '';
+const SCREENSHOT_DIR  = '/tmp/qa-screenshots';
+// Claude Haiku — fast, cheap, excellent vision. ~$0.0003 per screenshot (fractions of a cent).
+const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
+const ANTHROPIC_URL   = 'https://api.anthropic.com/v1/messages';
 
-if (!FIREBASE_URL) { console.error('FIREBASE_DATABASE_URL is not set'); process.exit(1); }
-if (!GEMINI_KEY)   { console.error('GEMINI_API_KEY is not set');         process.exit(1); }
+if (!FIREBASE_URL)  { console.error('FIREBASE_DATABASE_URL is not set'); process.exit(1); }
+if (!ANTHROPIC_KEY) { console.error('ANTHROPIC_API_KEY is not set');     process.exit(1); }
 
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
@@ -717,45 +716,57 @@ async function fbWrite(fbPath, data) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// GEMINI VISION
+// CLAUDE VISION
 // ─────────────────────────────────────────────────────────────────
-async function analyzeWithGemini(screenshotBase64, site) {
-  const prompt = `QA agent checking "${site.name}" (${site.url}).
-REPORT ONLY: blank/white page, HTTP error pages, DNS failure, domain parking, coming soon, server crash, wrong website, public page behind login wall.
-IGNORE: text changes, images, campaigns, layout, cookie banners, popups, normal charity content.
-Reply ONLY with JSON: {"passing":true,"majorIssues":[],"pageDescription":"one sentence"}`;
-  async function callGemini(url) {
-    return fetch(url, {
+async function analyzeWithClaude(screenshotBase64, site) {
+  const prompt = `You are a QA agent checking "${site.name}" (${site.url}).
+
+REPORT ONLY these as major failures:
+- Blank or white page with no content
+- HTTP error pages (404, 500, 503 etc.)
+- "This site can't be reached" or DNS failure
+- Domain parking / "buy this domain" / suspended account
+- "Coming soon" or "Under construction" pages
+- Server crash or database error messages
+- Completely wrong website showing
+- Login wall blocking a public page
+
+IGNORE completely: text changes, new campaigns, updated images, layout tweaks, cookie banners, popups, normal charity content.
+
+Reply ONLY with valid JSON — no markdown, no explanation:
+{"passing":true,"majorIssues":[],"pageDescription":"one sentence describing what you see"}`;
+
+  try {
+    const res = await fetch(ANTHROPIC_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+      },
       body: JSON.stringify({
-        contents: [{ parts: [
-          { inline_data: { mime_type: 'image/jpeg', data: screenshotBase64 } },
-          { text: prompt },
-        ]}],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 200 },
+        model: ANTHROPIC_MODEL,
+        max_tokens: 256,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: screenshotBase64 } },
+            { type: 'text',  text: prompt },
+          ],
+        }],
       }),
     });
-  }
-  try {
-    let res = await callGemini(GEMINI_URL);
-    // On 429 (quota exceeded) or 404 (model not found), retry with fallback
-    if (res.status === 429 || res.status === 404) {
-      const reason = res.status === 429 ? 'quota exceeded' : 'model not found';
-      log(`  Gemini primary (${reason}) — retrying with ${GEMINI_MODEL_FALLBACK}...`, 'warn');
-      res = await callGemini(GEMINI_URL_FALLBACK);
-    }
-    if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0,200)}`);
-    const json = await res.json();
-    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    const parsed = JSON.parse(text.replace(/```json|```/g,'').trim());
+    if (!res.ok) throw new Error(`Claude ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const json   = await res.json();
+    const text   = json?.content?.[0]?.text || '{}';
+    const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
     return {
-      passing: Boolean(parsed.passing),
-      majorIssues: Array.isArray(parsed.majorIssues) ? parsed.majorIssues : [],
+      passing:         Boolean(parsed.passing),
+      majorIssues:     Array.isArray(parsed.majorIssues) ? parsed.majorIssues : [],
       pageDescription: parsed.pageDescription || 'Analysis complete.',
     };
-  } catch(err) {
-    log(`  Gemini error: ${err.message}`, 'warn');
+  } catch (err) {
+    log(`  Claude vision error: ${err.message}`, 'warn');
     return { passing: null, majorIssues: [], pageDescription: 'Vision analysis unavailable.', error: err.message };
   }
 }
@@ -846,14 +857,14 @@ async function testSite(browser, site) {
       }
     }
 
-    // ── 4. Screenshot + Gemini vision ─────────────────────────────
+    // ── 4. Screenshot + Claude vision ──────────────────────────────
     try {
       const ss = await page.screenshot({ type: 'jpeg', quality: 72, fullPage: false, clip: { x:0, y:0, width:1440, height:900 } });
       fs.writeFileSync(path.join(SCREENSHOT_DIR, `${site.id}.jpg`), ss);
-      log('  Gemini vision...', 'ai');
-      const ai = await analyzeWithGemini(ss.toString('base64'), site);
+      log('  Claude vision...', 'ai');
+      const ai = await analyzeWithClaude(ss.toString('base64'), site);
       result.aiAnalysis = ai;
-      log(`  Gemini: ${ai.pageDescription}`, 'ai');
+      log(`  Claude: ${ai.pageDescription}`, 'ai');
       if (ai.passing === false && ai.majorIssues?.length > 0) {
         for (const issue of ai.majorIssues) {
           const dupe = result.majorFailures.some(f => f.toLowerCase().includes(issue.toLowerCase().slice(0,20)));
