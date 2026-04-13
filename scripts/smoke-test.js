@@ -19,7 +19,7 @@ const FIREBASE_URL   = (process.env.FIREBASE_DATABASE_URL || '').replace(/\/$/, 
 const GEMINI_KEY     = process.env.GEMINI_API_KEY || '';
 const SINGLE_SITE    = process.env.SINGLE_SITE   || '';
 const SCREENSHOT_DIR = '/tmp/qa-screenshots';
-const GEMINI_MODEL   = 'gemini-1.5-flash';
+const GEMINI_MODEL   = 'gemini-2.0-flash';
 const GEMINI_URL     = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
 
 if (!FIREBASE_URL) { console.error('FIREBASE_DATABASE_URL is not set'); process.exit(1); }
