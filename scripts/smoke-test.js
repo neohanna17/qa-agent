@@ -27,7 +27,7 @@ const GEMINI_KEY     = process.env.GEMINI_API_KEY || '';
 const SINGLE_SITE    = process.env.SINGLE_SITE   || '';
 const SCREENSHOT_DIR = '/tmp/qa-screenshots';
 const GEMINI_MODEL        = 'gemini-2.0-flash';
-const GEMINI_MODEL_FALLBACK = 'gemini-1.5-flash'; // fallback model on 429 (separate quota bucket)
+const GEMINI_MODEL_FALLBACK = 'gemini-2.0-flash-lite'; // fallback on 429 — separate quota bucket from gemini-2.0-flash
 const GEMINI_URL      = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
 const GEMINI_URL_FALLBACK = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_FALLBACK}:generateContent?key=${GEMINI_KEY}`;
 
@@ -739,9 +739,10 @@ Reply ONLY with JSON: {"passing":true,"majorIssues":[],"pageDescription":"one se
   }
   try {
     let res = await callGemini(GEMINI_URL);
-    // On 429 (quota exceeded), retry with fallback model which has a separate quota bucket
-    if (res.status === 429) {
-      log(`  Gemini primary quota exceeded — retrying with fallback model (${GEMINI_MODEL_FALLBACK})...`, 'warn');
+    // On 429 (quota exceeded) or 404 (model not found), retry with fallback
+    if (res.status === 429 || res.status === 404) {
+      const reason = res.status === 429 ? 'quota exceeded' : 'model not found';
+      log(`  Gemini primary (${reason}) — retrying with ${GEMINI_MODEL_FALLBACK}...`, 'warn');
       res = await callGemini(GEMINI_URL_FALLBACK);
     }
     if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0,200)}`);
