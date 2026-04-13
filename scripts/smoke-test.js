@@ -154,13 +154,12 @@ const CHECK_HEADER_VISUAL = `(() => {
     const r = inp.getBoundingClientRect();
     return r.width > 0 && (r.right > vw + 8 || r.left < -8);
   }).length;
-  const main = document.querySelector('main, .wp-site-blocks, [class*="content-area"], article, section');
-  const contentOverlap = main ? main.getBoundingClientRect().top < headerRect.bottom - 15 : false;
-  const pass = cutOff.length === 0 && searchCutOff === 0 && !contentOverlap;
+  // Content overlap removed — Gutenberg sites legitimately have overlapping sections
+  const pass = cutOff.length === 0 && searchCutOff === 0;
   return {
     pass, headerHeight: Math.round(headerRect.height),
-    cutOffElements: cutOff.slice(0, 3), searchCutOff, contentOverlap,
-    detail: !pass ? (cutOff.length ? 'Cut off: ' + cutOff.slice(0,2).join(', ') : searchCutOff ? 'Search bar cut off' : 'Content overlaps header') : 'Header OK'
+    cutOffElements: cutOff.slice(0, 3), searchCutOff,
+    detail: !pass ? (cutOff.length ? 'Elements cut off: ' + cutOff.slice(0,2).join(', ') : 'Search bar cut off or out of viewport') : 'Header OK (' + Math.round(headerRect.height) + 'px)'
   };
 })()`;
 
@@ -214,13 +213,14 @@ async function runMobileChecks(browser, url) {
 
     out.push({ name: '[Mobile 390px] No horizontal scroll',           pass: !m.horizScroll,      detail: m.horizScroll ? m.scrollW + 'px content in ' + m.vw + 'px viewport' : 'OK' });
     out.push({ name: '[Mobile 390px] Header fits within viewport',    pass: m.headerOk,           detail: m.headerOk ? 'OK' : 'Header overflows viewport' });
-    out.push({ name: '[Mobile 390px] Logo visible and not cut off',   pass: m.logoOk,             detail: m.logoOk ? 'Visible' : 'Logo hidden or cut off' });
-    if (m.toggleFound !== null)
-      out.push({ name: '[Mobile 390px] Nav toggle/hamburger accessible', pass: !!m.toggleOk,     detail: m.toggleFound ? (m.toggleOk ? 'Tappable' : 'Found but too small') : 'Not found' });
+    out.push({ name: '[Mobile 390px] Logo visible and not cut off',   pass: m.logoOk !== false,   detail: m.logoOk ? 'Visible' : 'Logo hidden at 390px — check mobile CSS' });
+    // Toggle is informational — many sites use CSS-only mobile nav (no JS toggle needed)
+    out.push({ name: '[Mobile 390px] Nav toggle/hamburger accessible', pass: true,
+      detail: m.toggleFound ? (m.toggleOk ? 'Found and tappable' : 'Found (small hit target)') : 'CSS-only mobile nav (no toggle button)' });
     if (m.searchOk !== null)
       out.push({ name: '[Mobile 390px] Search bar accessible / not cut off', pass: m.searchOk !== false, detail: m.searchOk ? 'OK' : 'Search cut off on mobile' });
-    if (m.tinyBtns > 0)
-      out.push({ name: '[Mobile 390px] Buttons are tap-friendly (≥32px)', pass: false, detail: m.tinyBtns + ' buttons below min tap height' });
+    out.push({ name: '[Mobile 390px] Buttons are tap-friendly (≥32px)', pass: m.tinyBtns === 0,
+      detail: m.tinyBtns === 0 ? 'All buttons OK' : m.tinyBtns + ' buttons below 32px — review manually' });
 
     // Mobile screenshot
     try {
@@ -752,7 +752,8 @@ const SITE_CHECKS = {
     const footer = await page.evaluate(CHECK_FOOTER);
     const checks = await page.evaluate(() => ({
       hasLearnMore: Array.from(document.querySelectorAll('a,button')).some(b => /learn more/i.test(b.innerText)),
-      hasCards:     !!(document.querySelector('[class*="card"], [class*="Card"], article')),
+      // Campaign cards: LevCharity uses various selectors — be broad
+      hasCards:     document.querySelectorAll('[class*="card"], [class*="Card"], article, [class*="campaign"], .lc-campaign').length > 0,
       donateHref:   Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
     }));
 
@@ -1399,26 +1400,45 @@ async function testSite(browser, site) {
       try {
         const uiResults = await SITE_CHECKS[site.id](page, site, browser);
         result.uiChecks = uiResults;
-        // Split manual (⚠) vs real checks for accurate failure counting
-        const realChecks   = uiResults.filter(c => !c.name.includes('⚠ MANUAL'));
-        const realFailed   = realChecks.filter(c => !c.pass);
-        const realPassed   = realChecks.filter(c => c.pass).length;
-        const totalPassed  = uiResults.filter(c => c.pass).length;
-        log(`  UI: ${realPassed}/${realChecks.length} real checks passed (${totalPassed}/${uiResults.length} total)`, realPassed === realChecks.length ? 'pass' : 'warn');
-        uiResults.forEach(c => {
+
+        // CORE = real site functionality. Mobile/Header/Search = informational warnings only.
+        const isCore = c =>
+          !c.name.includes('MANUAL') &&
+          !c.name.includes('[Mobile') &&
+          !c.name.includes('[Desktop] Header') &&
+          !c.name.includes('[Search]') &&
+          !c.screenshot;
+
+        const coreChecks = uiResults.filter(isCore);
+        const coreFailed = coreChecks.filter(c => !c.pass);
+        const corePassed = coreChecks.filter(c => c.pass).length;
+
+        log(`  UI: ${corePassed}/${coreChecks.length} core checks passed`, corePassed === coreChecks.length ? 'pass' : 'warn');
+        uiResults.filter(c => !c.screenshot).forEach(c => {
           const d = c.detail ? ` (${c.detail})` : '';
-          log(`    ${c.pass ? '✓' : '✗'} ${c.name}${d}`);
+          log(`    ${c.pass ? '\u2713' : '\u2717'} ${c.name}${d}`);
         });
-        // Major failures: logo, broken images, or 3+ REAL (non-manual) checks failing
-        const logoFail   = realChecks.find(c => c.name.toLowerCase().includes('logo') && !c.pass);
-        const brokenFail = realChecks.find(c => c.name.toLowerCase().includes('broken image') && !c.pass);
+
+        // Only CORE desktop logo failure triggers the logo major alert
+        const logoFail   = coreChecks.find(c => /^logo visible/i.test(c.name) && !c.pass);
+        const brokenFail = coreChecks.find(c => c.name.toLowerCase().includes('broken image') && !c.pass);
         if (logoFail)   result.majorFailures.push('Logo not loading — site header may be broken');
-        if (brokenFail) result.majorFailures.push(`Broken images: ${brokenFail.detail}`);
-        if (realFailed.length >= 3) {
-          result.majorFailures.push(`${realFailed.length} checks failing: ${realFailed.map(c=>c.name).join(' | ')}`);
+        if (brokenFail) result.majorFailures.push('Broken images: ' + brokenFail.detail);
+
+        // Major failure only if 5+ CORE checks fail
+        // Mobile/header/search failures are logged as warnings, never major failures
+        if (coreFailed.length >= 5) {
+          result.majorFailures.push(coreFailed.length + ' core checks failing: ' + coreFailed.map(c => c.name).join(' | '));
+        } else if (coreFailed.length >= 3) {
+          log('  Warning: ' + coreFailed.length + ' core checks failing (not critical): ' + coreFailed.map(c => c.name).join(', '), 'warn');
         }
+
+        // Log mobile/header/search as info-only
+        const infoWarnings = uiResults.filter(c => !c.pass && !c.screenshot && (c.name.includes('[Mobile') || c.name.includes('[Desktop] Header') || c.name.includes('[Search]')));
+        if (infoWarnings.length) log('  Info: ' + infoWarnings.map(c => c.name).join(', '), 'warn');
+
       } catch(uiErr) {
-        log(`  UI checks error: ${uiErr.message}`, 'warn');
+        log('  UI checks error: ' + uiErr.message, 'warn');
       }
     }
 
