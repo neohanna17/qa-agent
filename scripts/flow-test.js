@@ -641,6 +641,26 @@ async function flowTestSite(browser, site) {
       result.modules['checkout'] = [check('Checkout: module error', false, e.message.slice(0,80))];
     }
 
+    // ── Site-specific modules ─────────────────────────────────────────────
+    if (site.id === 'chaiathon') {
+      log(`\n  ── Chaiathon: Search/Pagination Regression ──`, 'section');
+      try {
+        const spChecks = await testChaiathonSearchPagination(page);
+        result.modules['searchPagination'] = spChecks;
+        spChecks.forEach(c => {
+          if (c.screenshot) return; // skip screenshot entries from log
+          log(`    ${c.pass ? '✓' : '✗'} ${c.name} ${c.detail ? '(' + c.detail + ')' : ''}`, c.pass ? 'pass' : 'fail');
+        });
+        const spFailed = spChecks.filter(c => !c.pass && !c.screenshot);
+        if (spFailed.length > 0) {
+          spFailed.forEach(f => result.majorFailures.push(f.detail || f.name));
+        }
+      } catch(e) {
+        log(`    Search/Pagination module error: ${e.message}`, 'fail');
+        result.modules['searchPagination'] = [check('Search/Pagination: module error', false, e.message.slice(0, 80))];
+      }
+    }
+
     // Screenshot of current state
     try {
       const ss = await page.screenshot({ type: 'jpeg', quality: 50, fullPage: false });
@@ -718,3 +738,183 @@ async function main() {
 }
 
 main().catch(err => { console.error('Fatal:', err); process.exit(1); });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chaiathon-specific: Search no-results pagination bug test
+// Run standalone: SINGLE_SITE=chaiathon node scripts/flow-test.js
+//
+// Test logic:
+//   1. Load /fundraisers/
+//   2. Confirm cards and pagination load correctly
+//   3. Type garbage search term 'abscjgdhuil'
+//   4. Wait for "Nothing found." to appear
+//   5. FAIL if .levcharity-pagination is still visible with page number buttons
+// ─────────────────────────────────────────────────────────────────────────────
+async function testChaiathonSearchPagination(page) {
+  const results = [];
+  const SEARCH_TERM = 'abscjgdhuil';
+  const URL = 'https://chaiathon.org/fundraisers/';
+
+  log('\n  ── Chaiathon: Search → No-Results → Pagination check ──', 'section');
+
+  try {
+    // ── Step 1: Load page ──────────────────────────────────────────────────
+    await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 25000 });
+    try { await page.waitForLoadState('networkidle', { timeout: 10000 }); } catch {}
+    await page.waitForTimeout(2000);
+
+    // ── Step 2: Baseline — cards and pagination should exist before search ──
+    const baseline = await page.evaluate(() => {
+      const pag = document.querySelector('.levcharity-pagination');
+      const pagStyle = pag ? window.getComputedStyle(pag) : null;
+      return {
+        cards: document.querySelectorAll('.team-campaign-participant-item').length,
+        searchInput: !!document.querySelector('input[name="participants-list-search"]'),
+        paginationExists: !!pag,
+        paginationVisible: pag ? (pagStyle.display !== 'none' && pag.offsetHeight > 0) : false,
+        visiblePageBtns: Array.from(document.querySelectorAll('.pagination-button.pagination-page-number'))
+          .filter(b => window.getComputedStyle(b).display !== 'none').length,
+      };
+    });
+
+    results.push(check('[Search/Pagination] Fundraisers page loaded with cards', baseline.cards > 0, `${baseline.cards} cards`));
+    results.push(check('[Search/Pagination] Search input present', baseline.searchInput));
+    results.push(check('[Search/Pagination] Pagination visible before search', baseline.paginationVisible, `${baseline.visiblePageBtns} page buttons visible`));
+
+    if (!baseline.searchInput) {
+      results.push(check('[Search/Pagination] Cannot proceed — search input missing', false, 'Aborting test'));
+      return results;
+    }
+
+    // ── Step 3: Type the garbage search term ──────────────────────────────
+    const searchSel = 'input[name="participants-list-search"]';
+    await page.click(searchSel);
+    await page.fill(searchSel, SEARCH_TERM);
+
+    // Trigger all events the LevCharity JS listens to
+    await page.evaluate((sel) => {
+      const input = document.querySelector(sel);
+      ['input', 'change', 'keyup'].forEach(evt =>
+        input.dispatchEvent(new Event(evt, { bubbles: true }))
+      );
+    }, searchSel);
+
+    // ── Step 4: Wait for "Nothing found." to appear ───────────────────────
+    let noResultsVisible = false;
+    try {
+      await page.waitForFunction(() => {
+        const allText = document.body.innerText;
+        return /nothing found|no results|no fundraisers found/i.test(allText) ||
+               document.querySelectorAll('.team-campaign-participant-item:not([style*="display: none"])').length === 0;
+      }, { timeout: 8000 });
+      noResultsVisible = true;
+    } catch {
+      // Fallback: check manually
+    }
+
+    await page.waitForTimeout(1500); // Let pagination react
+
+    // ── Step 5: Check state after no-results search ───────────────────────
+    const afterSearch = await page.evaluate(() => {
+      const pag = document.querySelector('.levcharity-pagination');
+      const pagStyle = pag ? window.getComputedStyle(pag) : null;
+      const visiblePageBtns = Array.from(document.querySelectorAll('.pagination-button.pagination-page-number'))
+        .filter(b => window.getComputedStyle(b).display !== 'none');
+      const prevNextBtns = Array.from(document.querySelectorAll('.pagination-button.prev, .pagination-button.next'))
+        .filter(b => window.getComputedStyle(b).display !== 'none' && !b.classList.contains('disabled'));
+
+      // "Nothing found." text
+      const bodyText = document.body.innerText;
+      const hasNoResultsText = /nothing found|no results|no fundraisers/i.test(bodyText);
+
+      // Visible cards
+      const visibleCards = Array.from(document.querySelectorAll('.team-campaign-participant-item'))
+        .filter(el => window.getComputedStyle(el).display !== 'none' && el.offsetHeight > 0).length;
+
+      return {
+        visibleCards,
+        hasNoResultsText,
+        paginationVisible: pag ? (pagStyle.display !== 'none' && pag.offsetHeight > 0) : false,
+        paginationDisplay: pagStyle?.display || 'N/A',
+        paginationHeight: pag?.offsetHeight || 0,
+        visiblePageBtnCount: visiblePageBtns.length,
+        visiblePageBtnTexts: visiblePageBtns.slice(0, 5).map(b => b.innerText.trim()),
+        activeNextBtn: prevNextBtns.length > 0,
+        searchVal: document.querySelector('input[name="participants-list-search"]')?.value,
+      };
+    });
+
+    log(`    Search: "${SEARCH_TERM}"`, 'info');
+    log(`    Visible cards: ${afterSearch.visibleCards}`, 'info');
+    log(`    "Nothing found." text: ${afterSearch.hasNoResultsText}`, 'info');
+    log(`    Pagination display: ${afterSearch.paginationDisplay}, height: ${afterSearch.paginationHeight}px`, 'info');
+    log(`    Visible page buttons: ${afterSearch.visiblePageBtnCount} (${afterSearch.visiblePageBtnTexts.join(', ')})`, 'info');
+
+    // ── The actual assertion ──────────────────────────────────────────────
+    results.push(check(
+      '[Search/Pagination] "Nothing found." shown after garbage search',
+      afterSearch.hasNoResultsText,
+      afterSearch.hasNoResultsText ? 'No-results message visible' : `Cards still visible: ${afterSearch.visibleCards}`
+    ));
+
+    results.push(check(
+      '[Search/Pagination] No results = zero visible fundraiser cards',
+      afterSearch.visibleCards === 0,
+      afterSearch.visibleCards === 0 ? 'Correct — 0 cards' : `BUG: ${afterSearch.visibleCards} cards still showing`
+    ));
+
+    // THE KEY CHECK: pagination must NOT be visible when no results
+    const paginationShouldBeHidden = !afterSearch.paginationVisible && afterSearch.visiblePageBtnCount === 0;
+    results.push(check(
+      '[Search/Pagination] Pagination hidden when no results found',
+      paginationShouldBeHidden,
+      paginationShouldBeHidden
+        ? 'Pagination correctly hidden'
+        : `BUG: Pagination still visible (display:${afterSearch.paginationDisplay}, ${afterSearch.visiblePageBtnCount} page buttons showing: [${afterSearch.visiblePageBtnTexts.join(', ')}])`
+    ));
+
+    // Take a screenshot as evidence
+    try {
+      const ss = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false, clip: { x:0, y:0, width:1440, height:900 } });
+      log(`    Screenshot captured (${Math.round(ss.length/1024)}KB)`, 'info');
+      results.push({ name: '[Search/Pagination] Screenshot after no-results search', pass: true, detail: 'Evidence captured', screenshot: ss.toString('base64') });
+    } catch {}
+
+    // ── Step 6: Clear search and verify pagination returns ────────────────
+    await page.fill(searchSel, '');
+    await page.evaluate((sel) => {
+      const input = document.querySelector(sel);
+      ['input', 'change', 'keyup'].forEach(evt => input.dispatchEvent(new Event(evt, { bubbles: true })));
+    }, searchSel);
+    await page.waitForTimeout(2000);
+
+    const afterClear = await page.evaluate(() => {
+      const pag = document.querySelector('.levcharity-pagination');
+      const pagStyle = pag ? window.getComputedStyle(pag) : null;
+      const visibleCards = Array.from(document.querySelectorAll('.team-campaign-participant-item'))
+        .filter(el => window.getComputedStyle(el).display !== 'none' && el.offsetHeight > 0).length;
+      return {
+        paginationVisible: pag ? (pagStyle.display !== 'none' && pag.offsetHeight > 0) : false,
+        visibleCards,
+      };
+    });
+
+    results.push(check(
+      '[Search/Pagination] Cards return after clearing search',
+      afterClear.visibleCards > 0,
+      `${afterClear.visibleCards} cards visible after clear`
+    ));
+    results.push(check(
+      '[Search/Pagination] Pagination returns after clearing search',
+      afterClear.paginationVisible,
+      afterClear.paginationVisible ? 'Pagination visible again' : 'BUG: Pagination not restored after clearing search'
+    ));
+
+  } catch(e) {
+    results.push(check('[Search/Pagination] Test error', false, e.message.slice(0, 100)));
+  }
+
+  return results;
+}
+
+// ── Chaiathon search/pagination test is called via site-specific hook above ──
