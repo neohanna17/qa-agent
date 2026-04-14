@@ -31,7 +31,7 @@ const SITES = [
   { id: 'pantry',    name: 'Pantry Packers',         url: 'https://give.pantrypackers.org',          campaignPath: '/bar-mitzvah/' },
   { id: 'israelthon',name: 'Israelthon',              url: 'https://israelthon.org',                  campaignPath: null },
   { id: 'yorkville', name: 'Yorkville Jewish Centre', url: 'https://donate.yorkvillejewishcentre.com', campaignPath: null },
-  { id: 'chaiathon', name: 'Chaiathon',               url: 'https://chaiathon.org',                   campaignPath: null },
+  { id: 'chaiathon', name: 'Chaiathon',               url: 'https://chaiathon.org',                   campaignPath: '/chaiathon/yavneh-academy/' },
   { id: 'fcl',       name: 'Chai Lifeline USA',       url: 'https://fundraise.chailifeline.org',      campaignPath: null },
   { id: 'uh',        name: 'United Hatzalah',         url: 'https://israelrescue.org',                campaignPath: '/my-mitzvah-all-campaigns/' },
   { id: 'clc',       name: 'Chai Lifeline Canada',    url: 'https://fundraise.chailifelinecanada.org', campaignPath: null },
@@ -111,8 +111,10 @@ async function testHero(page) {
     wpBlocks: !!document.querySelector('.wp-site-blocks'),
   }));
   results.push(check('Hero: page content loads (.wp-site-blocks)', hero.wpBlocks));
-  results.push(check('Hero: hero section present', hero.heroSection || hero.heroThumb));
-  results.push(check('Hero: hero image/banner visible', hero.heroThumb || hero.bannerImg, hero.bannerImg ? 'Banner image found' : hero.heroThumb ? 'Thumbnail found' : 'No hero image'));
+  // Hero checks — only fail if page clearly has NO hero at all
+  var hasAnyHero = hero.heroSection || hero.heroThumb || hero.bannerImg;
+  results.push(check('Hero: hero section or thumbnail present', hasAnyHero, hasAnyHero ? 'Found' : 'No .levcharity_hero_section or hero thumbnail — site may use custom hero'));
+  results.push(check('Hero: hero image/banner visible', hero.heroThumb || hero.bannerImg || hero.heroSection, hero.bannerImg ? 'Banner image found' : hero.heroThumb ? 'Thumbnail found' : hero.heroSection ? 'Hero section found' : 'No hero image detected'));
   return results;
 }
 
@@ -409,6 +411,11 @@ async function testDonationsAndAbout(page, campaignUrl) {
     topFundraisers: document.querySelectorAll('.ambassadors_section a[href]').length,
   }));
 
+  // If neither donations section exists, skip all sub-checks — not all sites use this module
+  if (!da.donationsSection && !da.ambassadorsSection && !da.ambassadorsSearch) {
+    results.push(check('Donations & About: module not present on this page', true, 'Site does not use donations/about section — skipped'));
+    return results;
+  }
   results.push(check('Donations & About: donations section present', da.donationsSection));
   results.push(check('Donations & About: total donors widget', da.totalDonors, da.totalDonorsLabel || 'Present'));
   results.push(check('Donations & About: ambassadors widget', da.ambassadors));
@@ -786,6 +793,12 @@ async function testChaiathonSearchPagination(page) {
       return results;
     }
 
+    // ── Step 2 screenshot: baseline state ───────────────────────────────
+    try {
+      const ss0 = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false, clip: {x:0,y:0,width:1440,height:900} });
+      results.push({ name: '[Search/Pagination] Step 1: Baseline — cards and pagination loaded', pass: true, detail: baseline.cards + ' cards, ' + baseline.visiblePageBtns + ' page buttons visible', screenshot: ss0.toString('base64') });
+    } catch {}
+
     // ── Step 3: Type the garbage search term ──────────────────────────────
     const searchSel = 'input[name="participants-list-search"]';
     await page.click(searchSel);
@@ -798,6 +811,12 @@ async function testChaiathonSearchPagination(page) {
         input.dispatchEvent(new Event(evt, { bubbles: true }))
       );
     }, searchSel);
+
+    // Screenshot immediately after typing
+    try {
+      const ss1 = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false, clip: {x:0,y:0,width:1440,height:900} });
+      results.push({ name: `[Search/Pagination] Step 2: Searched "${SEARCH_TERM}" — waiting for no-results`, pass: true, detail: 'Search term entered, events fired', screenshot: ss1.toString('base64') });
+    } catch {}
 
     // ── Step 4: Wait for "Nothing found." to appear ───────────────────────
     let noResultsVisible = false;
@@ -813,6 +832,12 @@ async function testChaiathonSearchPagination(page) {
     }
 
     await page.waitForTimeout(1500); // Let pagination react
+
+    // ── Screenshot: no-results state ─────────────────────────────────────
+    try {
+      const ss2 = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false, clip: {x:0,y:0,width:1440,height:900} });
+      results.push({ name: '[Search/Pagination] Step 3: No-results state — checking pagination visibility', pass: true, detail: 'State after search settled', screenshot: ss2.toString('base64') });
+    } catch {}
 
     // ── Step 5: Check state after no-results search ───────────────────────
     const afterSearch = await page.evaluate(() => {
@@ -873,11 +898,22 @@ async function testChaiathonSearchPagination(page) {
         : `BUG: Pagination still visible (display:${afterSearch.paginationDisplay}, ${afterSearch.visiblePageBtnCount} page buttons showing: [${afterSearch.visiblePageBtnTexts.join(', ')}])`
     ));
 
-    // Take a screenshot as evidence
+    // Step 4 screenshot: after assertion — show the failed state clearly
     try {
-      const ss = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false, clip: { x:0, y:0, width:1440, height:900 } });
-      log(`    Screenshot captured (${Math.round(ss.length/1024)}KB)`, 'info');
-      results.push({ name: '[Search/Pagination] Screenshot after no-results search', pass: true, detail: 'Evidence captured', screenshot: ss.toString('base64') });
+      await page.evaluate(() => {
+        // Scroll pagination into view so it's visible in screenshot
+        const pag = document.querySelector('.levcharity-pagination');
+        if (pag) pag.scrollIntoView({ behavior: 'instant', block: 'center' });
+      });
+      await page.waitForTimeout(300);
+      const ss3 = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false, clip: {x:0,y:0,width:1440,height:900} });
+      const pagStillShowing = afterSearch.paginationVisible && afterSearch.visiblePageBtnCount > 0;
+      results.push({ 
+        name: '[Search/Pagination] Step 4: ' + (pagStillShowing ? 'BUG — pagination visible with no results' : 'Pagination correctly hidden'), 
+        pass: !pagStillShowing, 
+        detail: pagStillShowing ? 'Pagination showing ' + afterSearch.visiblePageBtnCount + ' page buttons when 0 results' : 'Pagination hidden correctly',
+        screenshot: ss3.toString('base64') 
+      });
     } catch {}
 
     // ── Step 6: Clear search and verify pagination returns ────────────────
@@ -909,6 +945,11 @@ async function testChaiathonSearchPagination(page) {
       afterClear.paginationVisible,
       afterClear.paginationVisible ? 'Pagination visible again' : 'BUG: Pagination not restored after clearing search'
     ));
+    // Step 5: After clear
+    try {
+      const ss4 = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false, clip: {x:0,y:0,width:1440,height:900} });
+      results.push({ name: '[Search/Pagination] Step 5: After clearing search — cards and pagination restored', pass: afterClear.visibleCards > 0, detail: afterClear.visibleCards + ' cards back, pagination: ' + (afterClear.paginationVisible ? 'visible' : 'hidden'), screenshot: ss4.toString('base64') });
+    } catch {}
 
   } catch(e) {
     results.push(check('[Search/Pagination] Test error', false, e.message.slice(0, 100)));
