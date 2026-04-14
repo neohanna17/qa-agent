@@ -1,11 +1,13 @@
 {
   "name": "qa-agent",
   "version": "1.0.0",
-  "description": "Automated AI smoke test agent — Gemini vision + Playwright",
+  "description": "Automated AI smoke test agent \u2014 Gemini vision + Playwright",
   "main": "scripts/smoke-test.js",
   "scripts": {
     "test": "node scripts/smoke-test.js",
-    "test:site": "node scripts/smoke-test.js --site"
+    "test:site": "node scripts/smoke-test.js --site",
+    "flow": "node scripts/flow-test.js",
+    "flow:site": "SINGLE_SITE=$SITE node scripts/flow-test.js"
   },
   "dependencies": {
     "playwright": "^1.42.0",
