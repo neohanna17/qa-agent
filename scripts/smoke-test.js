@@ -1456,12 +1456,30 @@ async function testSite(browser, site) {
       behero: site.url.replace(/\/$/, '') + '/be-a-hero/',
     };
 
+    // Track every URL actually visited + screenshot taken — proof of what was tested
+    result.evidence = [];
+
+    // Helper to capture screenshot evidence at current page
+    async function captureEvidence(label, url) {
+      try {
+        const ss = await page.screenshot({ type: 'jpeg', quality: 45, fullPage: false, clip: { x:0, y:0, width:1440, height:900 } });
+        const b64 = ss.toString('base64');
+        result.evidence.push({ label, url: url || page.url(), screenshot: b64, ts: new Date().toISOString() });
+        return b64;
+      } catch(e) {
+        result.evidence.push({ label, url: url || page.url(), screenshot: null, error: e.message });
+        return null;
+      }
+    }
+
     // ── Take homepage screenshot immediately ─────────────────────
     try {
-      const homeSS = await page.screenshot({ type: 'jpeg', quality: 50, fullPage: false, clip: { x:0, y:0, width:1440, height:900 } });
+      const homeSS = await captureEvidence('Homepage', site.url);
       result.screenshots = result.screenshots || {};
-      result.screenshots.homepage = homeSS.toString('base64');
-      fs.writeFileSync(path.join(SCREENSHOT_DIR, `${site.id}-home.jpg`), homeSS);
+      if (homeSS) {
+        result.screenshots.homepage = homeSS;
+        fs.writeFileSync(path.join(SCREENSHOT_DIR, `${site.id}-home.jpg`), Buffer.from(homeSS, 'base64'));
+      }
       log('  Homepage screenshot captured');
     } catch(e) { log('  Homepage screenshot failed: ' + e.message, 'warn'); }
 
@@ -1578,9 +1596,13 @@ async function testSite(browser, site) {
       }
       if (!donateLoaded) log('  No donate page accessible — using current page for screenshot', 'warn');
 
-      donateSS = await page.screenshot({ type: 'jpeg', quality: 50, fullPage: false, clip: { x:0, y:0, width:1440, height:900 } });
-      result.screenshots.donate = donateSS.toString('base64');
+      donateSS = await page.screenshot({ type: 'jpeg', quality: 45, fullPage: false, clip: { x:0, y:0, width:1440, height:900 } });
+      const donateSS_b64 = donateSS.toString('base64');
+      result.screenshots.donate = donateSS_b64;
       fs.writeFileSync(path.join(SCREENSHOT_DIR, `${site.id}-donate.jpg`), donateSS);
+      // Add to evidence trail
+      result.evidence = result.evidence || [];
+      result.evidence.push({ label: 'Donate / Checkout Page', url: page.url(), screenshot: donateSS_b64, ts: new Date().toISOString() });
       log('  Donate page screenshot captured');
 
       // Also keep single result.screenshot for backwards compat (homepage)
@@ -1612,6 +1634,15 @@ async function testSite(browser, site) {
 
 function finalise(result) {
   result.status = result.majorFailures.length > 0 ? 'fail' : 'pass';
+  // Store GitHub Actions run info for direct links from dashboard
+  result.githubRun = {
+    repo: 'neohanna17/qa-agent',
+    runUrl: 'https://github.com/neohanna17/qa-agent/actions',
+    runId: process.env.GITHUB_RUN_ID || null,
+  };
+  if (process.env.GITHUB_RUN_ID) {
+    result.githubRun.runUrl = 'https://github.com/neohanna17/qa-agent/actions/runs/' + process.env.GITHUB_RUN_ID;
+  }
   if (result.status === 'pass') log(`${result.name} — PASSED`, 'pass');
   else log(`${result.name} — FAILED: ${result.majorFailures.join(' | ')}`, 'fail');
   return result;
