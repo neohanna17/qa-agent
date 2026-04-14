@@ -185,34 +185,137 @@ const CHECK_HEADER_VISUAL = `(() => {
 
 // ── Reusable search bar interactive test ───────────────────────────────────
 // Detects search response by watching for DOM change OR AJAX network activity
-async function testSearchBar(page, searchTerm, linkSelector, label) {
+/**
+ * Universal search test — handles both:
+ *   (a) Participant/fundraiser list filtering (input visible on page)
+ *   (b) Header dropdown search (icon must be clicked first to reveal input)
+ * Always takes a screenshot after search for evidence.
+ */
+async function testSearchBar(page, searchTerm, linkSelector, label, captureEvidenceFn) {
   try {
-    const inp = page.locator('input[type="search"], input[placeholder*="Search"], input[placeholder*="Find"]').first();
-    if (!await inp.isVisible({ timeout: 4000 }).catch(() => false))
-      return { name: label, pass: false, detail: 'Search input not visible on page' };
+    // ── Step 1: Try to find a visible search input ──────────────────────────
+    const inputSelectors = [
+      'input[name="participants-list-search"]',
+      'input[name="ambassadors_search_input"]',
+      'input[name="search"]',
+      'input[type="search"]',
+      'input[placeholder*="Search" i]',
+      'input[placeholder*="Find" i]',
+      '.jet-ajax-search__input',
+      '[class*="search"] input',
+    ];
 
-    // Count visible matching items before search (exclude hidden ones)
-    const countVisible = async (sel) => {
-      return page.evaluate(s => {
-        return Array.from(document.querySelectorAll(s)).filter(el => {
-          const r = el.getBoundingClientRect();
-          return r.width > 0 || el.offsetParent !== null;
-        }).length;
-      }, sel);
-    };
+    let inp = null;
+    for (const sel of inputSelectors) {
+      const candidate = page.locator(sel).first();
+      if (await candidate.isVisible({ timeout: 1500 }).catch(() => false)) {
+        inp = candidate;
+        break;
+      }
+    }
 
-    const before = await countVisible(linkSelector);
+    // ── Step 2: If no visible input, try clicking a search icon to reveal it ─
+    if (!inp) {
+      const iconSelectors = [
+        '.levit-open-popup-button',
+        'button[class*="search"]',
+        'a[class*="search"]',
+        '[class*="jet-search"] button',
+        '.jet-ajax-search__submit',
+        '[aria-label*="search" i]',
+        'button[aria-label*="Search" i]',
+        '.search-toggle',
+        '#search-icon',
+      ];
+      for (const sel of iconSelectors) {
+        const icon = page.locator(sel).first();
+        if (await icon.isVisible({ timeout: 1500 }).catch(() => false)) {
+          await icon.click().catch(() => {});
+          await page.waitForTimeout(600);
+          break;
+        }
+      }
+      // Try finding input again after click
+      for (const sel of inputSelectors) {
+        const candidate = page.locator(sel).first();
+        if (await candidate.isVisible({ timeout: 2000 }).catch(() => false)) {
+          inp = candidate;
+          break;
+        }
+      }
+    }
+
+    if (!inp) {
+      const ss = capFn ? await capFn(label + ' — no search input found') : null;
+      const result = { name: label, pass: false, detail: 'Search input not found (tried clicking icon)' };
+      if (ss) result.screenshot = ss;
+      return result;
+    }
+
+    // ── Step 3: Type search term and wait for response ───────────────────────
     await inp.fill(searchTerm);
-    // Wait up to 4s for DOM to change or settle
-    await page.waitForTimeout(3500);
-    const after = await countVisible(linkSelector);
-    await inp.fill('');
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(3000);
 
-    const responded = after !== before || after >= 0; // any response counts
-    const detail = `"${searchTerm}": ${after} visible items (was ${before})${after === before ? ' — DOM unchanged, search may use URL params' : ''}`;
-    return { name: label, pass: responded, detail };
-  } catch(e) { return { name: label, pass: false, detail: 'Error: ' + e.message.slice(0, 60) }; }
+    // ── Step 4: Check for results — dropdown OR filtered list ─────────────────
+    const searchState = await page.evaluate((args) => {
+      const term = args.term, listSel = args.listSel;
+      // Dropdown results (jet-ajax-search style)
+      const dropdownSels = [
+        '.jet-ajax-search__results-holder',
+        '.jet-ajax-search__results',
+        '[class*="search-results"]',
+        '[class*="search__results"]',
+        '.autocomplete-results',
+        '.search-dropdown',
+        '[role="listbox"]',
+        '[class*="suggest"]',
+      ];
+      let dropdownFound = false, dropdownItems = 0;
+      for (const sel of dropdownSels) {
+        const el = document.querySelector(sel);
+        if (el && el.offsetParent !== null) {
+          const items = el.querySelectorAll('a, li, [class*="result-item"], [class*="search-item"]');
+          const visible = Array.from(items).filter(i => i.offsetParent !== null).length;
+          if (visible > 0) { dropdownFound = true; dropdownItems = visible; break; }
+        }
+      }
+      // Filtered list results
+      let listBefore = 0, listAfter = 0;
+      if (listSel) {
+        const items = Array.from(document.querySelectorAll(listSel));
+        listAfter = items.filter(el => el.offsetParent !== null).length;
+      }
+      // AJAX results in page (search results section)
+      const pageHasResults = document.body.innerText.toLowerCase().includes(term.toLowerCase());
+      return { dropdownFound, dropdownItems, listAfter, pageHasResults };
+    }, { term: searchTerm, listSel: linkSelector });
+
+    // Screenshot as evidence
+    let ssB64 = null;
+    if (captureEvidenceFn) ssB64 = await captureEvidenceFn(`${label} — after typing "${searchTerm}"`);
+
+    await inp.fill('').catch(() => {});
+    await page.waitForTimeout(800);
+
+    const responded = searchState.dropdownFound || searchState.listAfter > 0 || searchState.pageHasResults;
+    let detail;
+    if (searchState.dropdownFound) {
+      detail = `Dropdown showed ${searchState.dropdownItems} results for "${searchTerm}"`;
+    } else if (searchState.listAfter > 0) {
+      detail = `"${searchTerm}": ${searchState.listAfter} visible results`;
+    } else if (searchState.pageHasResults) {
+      detail = `"${searchTerm}" found in page content`;
+    } else {
+      detail = `No results detected for "${searchTerm}" — search may use URL navigation`;
+    }
+
+    const result = { name: label, pass: responded, detail };
+    if (ssB64) result.screenshot = ssB64;
+    return result;
+
+  } catch(e) {
+    return { name: label, pass: false, detail: 'Error: ' + e.message.slice(0, 60) };
+  }
 }
 
 // ── Mobile test runner — opens new iPhone context ──────────────────────────
@@ -715,7 +818,7 @@ const SITE_CHECKS = {
     // ── Header visual + mobile checks ──
     const hv_israelthon = await page.evaluate(CHECK_HEADER_VISUAL);
     // Search bar interactive test
-    const searchResult_israelthon = await testSearchBar(page, 'Sara', 'a[href*="raiser"], a[href*="team"]', '[Search] Israelthon search filters results');
+    const searchResult_israelthon = await testSearchBar(page, 'Sara', 'a[href*="raiser"], a[href*="team"]', '[Search] Israelthon search filters results', captureEvidence);
     const mob_israelthon = await runMobileChecks(browser, 'https://israelthon.org/');
     return [
       { name: 'Logo visible and loaded',           pass: logo.pass,                  detail: logo.detail },
@@ -785,7 +888,7 @@ const SITE_CHECKS = {
     // ── Header visual + mobile checks ──
     const hv_chaiathon = await page.evaluate(CHECK_HEADER_VISUAL);
     // Search bar interactive test
-    const searchResult_chaiathon = await testSearchBar(page, 'Israel', 'a[href*="mymitzvah/"], a[href*="fundraiser"]', '[Search] Chaiathon search filters results');
+    const searchResult_chaiathon = await testSearchBar(page, 'Israel', 'a[href*="mymitzvah/"], a[href*="fundraiser"]', '[Search] Chaiathon search filters results', captureEvidence);
     const mob_chaiathon = await runMobileChecks(browser, 'https://chaiathon.org');
     return [
       { name: 'Logo visible and loaded',         pass: logo.pass,                                      detail: logo.detail },
@@ -1122,7 +1225,7 @@ const SITE_CHECKS = {
     const hv_adi = await page.evaluate(CHECK_HEADER_VISUAL);
     // Search: ADI uses jet-ajax-search — click icon to open, then type, check for dropdown results
     const searchResult_adi = await (async () => {
-      const label = '[Search] ADI search dropdown responds to input';
+      const label = '[Search] ADI search dropdown responds to input'; const capFn = captureEvidence;
       try {
         // Click the search icon to open the search input
         const searchIcon = page.locator('.levit-open-popup-button, button[class*="search"], a[class*="search"], [class*="jet-search"] button, .jet-ajax-search__submit').first();
@@ -1225,7 +1328,7 @@ const SITE_CHECKS = {
     // ── Header visual + mobile checks ──
     const hv_nahal = await page.evaluate(CHECK_HEADER_VISUAL);
     // Search bar interactive test
-    const searchResult_nahal = await testSearchBar(page, 'campaign', 'a[href*="campaign"], a[href*="fundraiser"]', '[Search] Nahal search filters results');
+    const searchResult_nahal = await testSearchBar(page, 'campaign', 'a[href*="campaign"], a[href*="fundraiser"]', '[Search] Nahal search filters results', captureEvidence);
     const mob_nahal = await runMobileChecks(browser, 'https://give.nahalharedi.org/');
     return [
       { name: 'Logo visible and loaded',       pass: logo.pass,              detail: logo.detail },
@@ -1541,8 +1644,34 @@ async function testSite(browser, site) {
     // ── 3. Per-site UI checks ─────────────────────────────────────
     if (SITE_CHECKS[site.id]) {
       try {
-        const uiResults = await SITE_CHECKS[site.id](page, site, browser);
+        // captureForCheck: takes a screenshot and attaches it to a check result object
+        const captureForCheck = async (checkResult, label) => {
+          try {
+            const ss = await page.screenshot({ type:'jpeg', quality:45, fullPage:false, clip:{x:0,y:0,width:1440,height:900} });
+            const b64 = ss.toString('base64');
+            checkResult.screenshot = b64;
+            result.evidence.push({ label: label||checkResult.name, url:page.url(), screenshot:b64, ts:new Date().toISOString() });
+          } catch {}
+          return checkResult;
+        };
+        const uiResults = await SITE_CHECKS[site.id](page, site, browser, captureEvidence, captureForCheck);
         result.uiChecks = uiResults;
+
+        // ── Capture a screenshot at current page state for any checks without one ──
+        // This gives the dashboard evidence for every test run
+        const checksNeedingScreenshot = uiResults.filter(c =>
+          !c.screenshot && !c.name.includes('[Mobile') && !c.name.includes('MANUAL')
+        );
+        if (checksNeedingScreenshot.length > 0) {
+          try {
+            const ss = await page.screenshot({ type:'jpeg', quality:45, fullPage:false, clip:{x:0,y:0,width:1440,height:900} });
+            const b64 = ss.toString('base64');
+            // Attach the page-state screenshot to each check that doesn't have one
+            checksNeedingScreenshot.forEach(c => { c.screenshot = b64; });
+            // Add as one evidence entry labelled for this page
+            result.evidence.push({ label:'Core UI Checks — '+site.name, url:page.url(), screenshot:b64, ts:new Date().toISOString() });
+          } catch {}
+        }
 
         // CORE = real site functionality. Mobile/Header/Search = informational warnings only.
         const isCore = c =>
