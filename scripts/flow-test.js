@@ -432,21 +432,71 @@ async function testFundraiserList(page, site) {
   if (l.donorSearch)   r.push(chk('[FundraiserList] Donor search present', true));
   if (l.donorSort)     r.push(chk('[FundraiserList] Donor sort present', true));
 
-  // Interactive: search for first fundraiser name → confirm filter works
-  if (l.searchInput && l.firstCardName && !cfg.cloudflareBlocked) {
+  // Interactive: search 'campaign' — works on all sites, triggers dropdown or list filter
+  if (!cfg.cloudflareBlocked) {
     try {
-      const firstName = l.firstCardName.split(' ')[0];
-      const el = page.locator(searchSel).first();
-      await el.fill(firstName);
-      await page.waitForTimeout(2000);
-      const after = await page.evaluate(() =>
-        [...document.querySelectorAll('.team-campaign-participant-item')].filter(e=>e.offsetParent!==null).length
-      );
-      await el.fill('');
-      await page.waitForTimeout(1000);
-      r.push(chk('[FundraiserList] Search filters results', true, `"${firstName}" → ${after} visible`));
+      const searchTerm = 'campaign';
+      let inp = null;
+
+      // First: try visible participant-list search
+      if (l.searchInput) {
+        const direct = page.locator(searchSel).first();
+        if (await direct.isVisible({ timeout:2000 }).catch(()=>false)) inp = direct;
+      }
+
+      // Second: try clicking a search icon to reveal a dropdown input
+      if (!inp) {
+        const iconSels = ['.levit-open-popup-button','button[class*="search"]','a[class*="search"]','.jet-ajax-search__submit','[aria-label*="search" i]'];
+        for (const sel of iconSels) {
+          const icon = page.locator(sel).first();
+          if (await icon.isVisible({ timeout:1500 }).catch(()=>false)) {
+            await icon.click().catch(()=>{});
+            await page.waitForTimeout(600);
+            break;
+          }
+        }
+        const revealSels = ['input[name="participants-list-search"]','input[name="ambassadors_search_input"]','input[type="search"]','.jet-ajax-search__input','input[placeholder*="Search" i]'];
+        for (const sel of revealSels) {
+          const candidate = page.locator(sel).first();
+          if (await candidate.isVisible({ timeout:2000 }).catch(()=>false)) { inp = candidate; break; }
+        }
+      }
+
+      if (!inp) {
+        r.push(chk('[FundraiserList] Search responds to input', false, 'No search input found after trying icon click'));
+      } else {
+        await inp.fill(searchTerm);
+        await page.waitForTimeout(3000);
+
+        // Check for results: dropdown OR filtered participant list OR page content change
+        const results = await page.evaluate((term) => {
+          // Dropdown results (jet-ajax-search style)
+          const dropdownSels = ['.jet-ajax-search__results-holder','.jet-ajax-search__results','[class*="search-results"]','[role="listbox"]','[class*="suggest"]','[class*="autocomplete"]'];
+          for (const sel of dropdownSels) {
+            const el = document.querySelector(sel);
+            if (el && el.offsetParent !== null) {
+              const items = el.querySelectorAll('a,li,[class*="result-item"]');
+              const vis = [...items].filter(i=>i.offsetParent!==null).length;
+              if (vis > 0) return { type:'dropdown', count:vis, text:'Dropdown: '+vis+' results' };
+            }
+          }
+          // Filtered participant list
+          const filtered = [...document.querySelectorAll('.team-campaign-participant-item')].filter(e=>e.offsetParent!==null).length;
+          if (filtered > 0) return { type:'list', count:filtered, text:'List: '+filtered+' filtered results' };
+          // Term appears in page (url-based search)
+          if (document.body.innerText.toLowerCase().includes(term.toLowerCase())) return { type:'content', count:1, text:'Term found in page' };
+          return { type:'none', count:0, text:'No results detected' };
+        }, searchTerm);
+
+        await inp.fill('').catch(()=>{});
+        await page.waitForTimeout(800);
+
+        const responded = results.type !== 'none';
+        r.push(chk('[FundraiserList] Search responds to "'+searchTerm+'"', responded,
+          responded ? results.text : 'No dropdown or filtered results detected'));
+      }
     } catch(e) {
-      r.push(chk('[FundraiserList] Search interactive test', false, e.message.slice(0,60)));
+      r.push(chk('[FundraiserList] Search interactive test', false, e.message.slice(0,80)));
     }
   }
 
@@ -1061,9 +1111,23 @@ async function runSite(browser, site) {
       log(`\n  ── ${label} ──`, 'section');
       try {
         const checks = await fn();
+        // Take a screenshot of current page state after each module
+        const moduleSS = await screenshot(page, label+' — page state');
+        if (moduleSS) {
+          const realChecks = checks.filter(c => !c.screenshot);
+          const failed = realChecks.filter(c => !c.pass && !c.detail?.startsWith('SKIPPED:'));
+          checks.push({
+            ...moduleSS,
+            name: '[Screenshot] '+label,
+            pass: failed.length === 0,
+            detail: failed.length === 0
+              ? realChecks.length+' checks passed'
+              : failed.length+' failed: '+failed.map(c=>c.name.replace(/^\[.*?\]\s*/,'')).slice(0,3).join(', ')
+          });
+        }
         result.modules[key] = checks;
         checks.forEach(c => {
-          if (c.screenshot) return; // screenshot entries logged separately
+          if (c.screenshot) return;
           const isSkip = c.detail?.startsWith('SKIPPED:');
           log(`    ${isSkip?'⊘':c.pass?'✓':'✗'} ${c.name} ${c.detail?'('+c.detail+')':''}`, isSkip?'info':c.pass?'pass':'fail');
         });
@@ -1169,11 +1233,14 @@ async function runSite(browser, site) {
 
   const failedChecks = Object.values(result.modules).flat()
     .filter(c => !c.pass && !c.screenshot && !c.detail?.startsWith('SKIPPED:'));
-  if (failedChecks.length >= 3) {
-    result.majorFailures.push(failedChecks.length+' flow checks failing');
+  // ANY failing check = fail status. List them all in majorFailures for transparency.
+  if (failedChecks.length > 0) {
     result.status = 'fail';
-  } else if (failedChecks.length > 0 && result.status === 'pass') {
-    result.status = 'fail';
+    if (result.majorFailures.length === 0) {
+      // Summarise which modules failed
+      const failedModules = [...new Set(failedChecks.map(c => (c.name.match(/^\[([^\]]+)\]/) || ['',''])[1] || c.name.split(':')[0]).filter(Boolean))];
+      result.majorFailures.push(failedChecks.length + ' check' + (failedChecks.length!==1?'s':'')+' failed: ' + failedModules.slice(0,5).join(', '));
+    }
   }
 
   result.durationMs = Date.now() - start;
