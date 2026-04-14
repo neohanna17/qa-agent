@@ -2,37 +2,31 @@ name: Daily QA Smoke Tests
 
 on:
   schedule:
-    # Runs every day at 6:00 AM UTC (8am Israel / 9am South Africa)
-    - cron: '0 6 * * *'
-  # Allow manual trigger from GitHub Actions UI
+    - cron: '0 6 * * *'   # Daily smoke test — 6am UTC (8am Israel / 9am South Africa)
+    - cron: '0 7 * * 1'   # Weekly flow test — Mondays 7am UTC
   workflow_dispatch:
     inputs:
       site_id:
-        description: 'Run a single site by ID (leave empty to run all sites)'
+        description: 'Single site ID (leave empty for all)'
         required: false
         default: ''
+      test_type:
+        description: 'Test type: smoke or flow'
+        required: false
+        default: 'smoke'
 
 jobs:
   smoke-test:
-    name: Run AI Smoke Tests
+    name: Smoke Tests
     runs-on: ubuntu-latest
     timeout-minutes: 60
-
+    if: github.event_name == 'schedule' && github.event.schedule == '0 6 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type != 'flow')
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Install Playwright Chromium
-        run: npx playwright install chromium --with-deps
-
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm install
+      - run: npx playwright install chromium --with-deps
       - name: Run smoke tests
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -40,10 +34,19 @@ jobs:
           SINGLE_SITE: ${{ github.event.inputs.site_id }}
         run: node scripts/smoke-test.js
 
-      - name: Upload screenshots on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: failure-screenshots-${{ github.run_id }}
-          path: /tmp/qa-screenshots/
-          retention-days: 7
+  flow-test:
+    name: Flow Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    if: github.event_name == 'schedule' && github.event.schedule == '0 7 * * 1' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'flow')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm install
+      - run: npx playwright install chromium --with-deps
+      - name: Run flow tests
+        env:
+          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
+          SINGLE_SITE: ${{ github.event.inputs.site_id }}
+        run: node scripts/flow-test.js
