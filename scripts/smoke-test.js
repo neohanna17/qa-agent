@@ -817,8 +817,9 @@ const SITE_CHECKS = {
 
     // ── Header visual + mobile checks ──
     const hv_israelthon = await page.evaluate(CHECK_HEADER_VISUAL);
-    // Search bar interactive test
-    const searchResult_israelthon = await testSearchBar(page, 'Sara', 'a[href*="raiser"], a[href*="team"]', '[Search] Israelthon search filters results', captureEvidence);
+    // Navigate to /raisers/ where participant-list-search input lives, then test search
+    try { await page.goto('https://israelthon.org/raisers/', { waitUntil:'domcontentloaded', timeout:15000 }); await page.waitForTimeout(1500); } catch {}
+    const searchResult_israelthon = await testSearchBar(page, 'campaign', 'a[href*="raiser"], a[href*="team"]', '[Search] Israelthon search filters results', captureEvidence);
     const mob_israelthon = await runMobileChecks(browser, 'https://israelthon.org/');
     return [
       { name: 'Logo visible and loaded',           pass: logo.pass,                  detail: logo.detail },
@@ -888,7 +889,7 @@ const SITE_CHECKS = {
     // ── Header visual + mobile checks ──
     const hv_chaiathon = await page.evaluate(CHECK_HEADER_VISUAL);
     // Search bar interactive test
-    const searchResult_chaiathon = await testSearchBar(page, 'Israel', 'a[href*="mymitzvah/"], a[href*="fundraiser"]', '[Search] Chaiathon search filters results', captureEvidence);
+    const searchResult_chaiathon = await testSearchBar(page, 'campaign', 'a[href*="mymitzvah/"], a[href*="fundraiser"]', '[Search] Chaiathon search filters results', captureEvidence);
     const mob_chaiathon = await runMobileChecks(browser, 'https://chaiathon.org');
     return [
       { name: 'Logo visible and loaded',         pass: logo.pass,                                      detail: logo.detail },
