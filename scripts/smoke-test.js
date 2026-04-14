@@ -277,24 +277,24 @@ async function runMobileChecks(browser, url) {
 // Used to take a second screenshot showing the donation experience
 // ─────────────────────────────────────────────────────────────────
 const DONATE_URLS = {
-  pantry:     'https://give.pantrypackers.org/',          // IS a donation page
-  israelthon: 'https://israelthon.org/',                  // IS a donation page
-  yorkville:  'https://donate.yorkvillejewishcentre.com/',// IS a donation page
-  chaiathon:  'https://chaiathon.org/?lc-add-to-cart=664',// direct donate
-  fcl:        'https://fundraise.chailifeline.org/',      // IS a donation/campaign page
-  uh:         'https://israelrescue.org/donate',          // dedicated donate page
-  clc:        'https://fundraise.chailifelinecanada.org/',// IS a donation page
-  afmda:      'https://crowdfund.afmda.org/',             // IS a crowdfund page
-  misaskim:   'https://misaskim.ca/donate',               // dedicated donate page
+  pantry:     'https://give.pantrypackers.org/',
+  israelthon: 'https://israelthon.org/',
+  yorkville:  'https://donate.yorkvillejewishcentre.com/',
+  chaiathon:  'https://chaiathon.org/?lc-add-to-cart=664',
+  fcl:        'https://fundraise.chailifeline.org/hikingbyachad/', // campaign page with donate button (homepage has none)
+  uh:         'https://israelrescue.org/donate',
+  clc:        'https://fundraise.chailifelinecanada.org/',
+  afmda:      'https://crowdfund.afmda.org/',
+  misaskim:   'https://misaskim.ca/donate',
   shomrim:    'https://shomrimtoronto.org/?lc-add-to-cart=3173',
-  fallen:     'https://fallenh.org/',                     // IS a donation page
-  nitzanim:   'https://members.kehilatnitzanim.org/',     // IS a portal page
-  imf:        'https://israelmagenfund.org/',             // IS a donate page
-  adi:        'https://adi-il.org/donate/',               // dedicated donate page
-  yeshiva:    'https://donate.theyeshiva.net',            // IS a donation page
-  nahal:      'https://give.nahalharedi.org/',            // IS a donation page
-  r2bo:       'https://racetobais.olami.org/',            // IS a campaign page
-  ots:        'https://fundraise.ots.org.il/',            // IS a donation page
+  fallen:     'https://fallenh.org/',
+  nitzanim:   'https://members.kehilatnitzanim.org/',
+  imf:        'https://israelmagenfund.org/',
+  adi:        'https://adi-il.org/donate/',
+  yeshiva:    'https://donate.theyeshiva.net',
+  nahal:      'https://give.nahalharedi.org/',
+  r2bo:       'https://racetobais.olami.org/',
+  ots:        'https://fundraise.ots.org.il/',
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -1314,7 +1314,7 @@ async function analyzeWithClaude(screenshotBase64, site) {
 Inspect the screenshot and answer these 5 YES/NO questions. Be blunt and specific.
 1. "Page loaded?" — Is this a real functioning page, not an error/blank/CAPTCHA?
 2. "Donation form/amounts visible?" — Can a donor see amounts, a form, or products to select?
-3. "Donate/checkout button visible?" — Is there a clear button a donor can click to give?
+3. "Donate/checkout button visible?" — Is there ANY visible button or link for donating? This includes buttons labelled "Donate", "Give", "Support", "SUPPORT A HIKER", "Proceed" etc. LevCharity sites use form submit buttons, not just links.
 4. "No broken images?" — Are images rendering, or are there broken image placeholders?
 5. "No error messages?" — Is the page free from error text, warnings, or crashes?
 
