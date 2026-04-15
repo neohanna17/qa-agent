@@ -1660,19 +1660,13 @@ async function testSite(browser, site) {
 
         // ── Capture a screenshot at current page state for any checks without one ──
         // This gives the dashboard evidence for every test run
-        const checksNeedingScreenshot = uiResults.filter(c =>
-          !c.screenshot && !c.name.includes('[Mobile') && !c.name.includes('MANUAL')
-        );
-        if (checksNeedingScreenshot.length > 0) {
-          try {
-            const ss = await page.screenshot({ type:'jpeg', quality:45, fullPage:false, clip:{x:0,y:0,width:1440,height:900} });
-            const b64 = ss.toString('base64');
-            // Attach the page-state screenshot to each check that doesn't have one
-            checksNeedingScreenshot.forEach(c => { c.screenshot = b64; });
-            // Add as one evidence entry labelled for this page
-            result.evidence.push({ label:'Core UI Checks — '+site.name, url:page.url(), screenshot:b64, ts:new Date().toISOString() });
-          } catch {}
-        }
+        // Store page-state screenshot in evidence only — NOT on individual check objects
+        // (attaching to check objects breaks dashboard filtering)
+        try {
+          const ss = await page.screenshot({ type:'jpeg', quality:45, fullPage:false, clip:{x:0,y:0,width:1440,height:900} });
+          const b64 = ss.toString('base64');
+          result.evidence.push({ label:'Core UI Checks — '+site.name, url:page.url(), screenshot:b64, ts:new Date().toISOString() });
+        } catch {}
 
         // CORE = real site functionality. Mobile/Header/Search = informational warnings only.
         const isCore = c =>
