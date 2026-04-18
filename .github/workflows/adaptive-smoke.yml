@@ -1,93 +1,69 @@
-// netlify/functions/trigger-test.js
-// This function holds the GitHub token server-side.
-// Set GH_TOKEN and GH_REPO as Netlify environment variables.
-// Anyone with the Levi URL can trigger tests — no token required.
+name: Levi — Adaptive Smoke Test
 
-exports.handler = async function(event) {
-  // Handle CORS preflight
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      },
-      body: '',
-    };
-  }
+on:
+  workflow_dispatch:
+    inputs:
+      custom_url:
+        description: 'Website URL to audit (required)'
+        required: true
+        type: string
+      site_name:
+        description: 'Client / site name (for PDF report)'
+        required: false
+        type: string
+      site_type:
+        description: 'Platform — leave blank to auto-detect'
+        required: false
+        type: choice
+        options:
+          - ''
+          - wordpress
+          - elementor
+          - divi
+          - gutenberg
+          - woocommerce
+          - shopify
+          - squarespace
+          - wix
+          - webflow
+          - react
+          - custom
+        default: ''
+      site_namespace:
+        description: 'Firebase key (auto-generated from URL if blank)'
+        required: false
+        type: string
+      client_id:
+        description: 'Client ID (optional)'
+        required: false
+        type: string
 
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
-  }
+jobs:
+  levi-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
 
-  const GH_TOKEN = process.env.GH_TOKEN;
-  const GH_REPO  = process.env.GH_REPO || 'neohanna17/qa-agent';
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-  if (!GH_TOKEN) {
-    return {
-      statusCode: 500,
-      headers: { 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ error: 'GH_TOKEN not set in Netlify environment variables. Contact your admin.' }),
-    };
-  }
+      - name: Install dependencies
+        run: npm ci
 
-  let body;
-  try {
-    body = JSON.parse(event.body);
-  } catch(e) {
-    return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: 'Invalid JSON' };
-  }
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
 
-  const { url, name, platform, namespace, team } = body;
-
-  if (!url) {
-    return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: 'URL is required' };
-  }
-
-  try {
-    const resp = await fetch(
-      `https://api.github.com/repos/${GH_REPO}/actions/workflows/adaptive-smoke.yml/dispatches`,
-      {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/vnd.github+json',
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GH_TOKEN}`,
-        },
-        body: JSON.stringify({
-          ref: 'main',
-          inputs: {
-            custom_url:     url,
-            site_name:      name      || '',
-            site_type:      platform  || '',
-            site_namespace: namespace || '',
-            client_id:      team      || '',
-          },
-        }),
-      }
-    );
-
-    if (resp.status === 204) {
-      return {
-        statusCode: 200,
-        headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ ok: true, message: 'Test triggered successfully' }),
-      };
-    }
-
-    const text = await resp.text();
-    return {
-      statusCode: resp.status,
-      headers: { 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ error: 'GitHub API error: ' + text.slice(0, 200) }),
-    };
-
-  } catch(e) {
-    return {
-      statusCode: 500,
-      headers: { 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ error: 'Function error: ' + e.message }),
-    };
-  }
-};
+      - name: Run Levi Audit
+        env:
+          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
+          CUSTOM_URL:      ${{ inputs.custom_url }}
+          SITE_NAME:       ${{ inputs.site_name }}
+          SITE_TYPE:       ${{ inputs.site_type }}
+          SITE_NAMESPACE:  ${{ inputs.site_namespace }}
+          CLIENT_ID:       ${{ inputs.client_id }}
+          GITHUB_RUN_ID:   ${{ github.run_id }}
+        run: node scripts/adaptive-smoke.js
