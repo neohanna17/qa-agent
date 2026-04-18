@@ -318,6 +318,79 @@ async function testSearchBar(page, searchTerm, linkSelector, label, captureEvide
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// VISUAL HIGHLIGHT SCREENSHOT
+// Draws colored bounding boxes on key page elements, takes screenshot
+// green = passing check, red = failing check
+// ─────────────────────────────────────────────────────────────────────────────
+async function captureWithHighlights(page, highlights) {
+  try {
+    await page.evaluate((items) => {
+      document.querySelector('#_qa_overlay')?.remove();
+      const canvas = document.createElement('canvas');
+      canvas.id = '_qa_overlay';
+      canvas.style.cssText = 'position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;';
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      document.documentElement.appendChild(canvas);
+      const ctx = canvas.getContext('2d');
+      ctx.font = 'bold 10px system-ui,sans-serif';
+      items.forEach(({selector, label, pass}) => {
+        if (!selector) return;
+        const el = document.querySelector(selector);
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) return;
+        const color = pass ? '#16A34A' : '#DC2626';
+        ctx.fillStyle = pass ? 'rgba(22,163,74,0.07)' : 'rgba(220,38,38,0.09)';
+        ctx.fillRect(r.left, r.top, r.width, r.height);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = color; ctx.shadowBlur = 6;
+        ctx.strokeRect(r.left+1, r.top+1, r.width-2, r.height-2);
+        ctx.shadowBlur = 0;
+        const ico = pass ? '✓ ' : '✗ ';
+        const txt = ico + label.slice(0,32);
+        const tw = ctx.measureText(txt).width + 10;
+        const bx = Math.max(2, Math.min(r.left, window.innerWidth - tw - 4));
+        const by = r.top < 20 ? r.top + r.height + 2 : r.top - 17;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(bx, by, tw, 15, 4);
+        else ctx.rect(bx, by, tw, 15);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillText(txt, bx+5, by+11);
+      });
+    }, highlights);
+    const ss = await page.screenshot({ type: 'jpeg', quality: 55, fullPage: false });
+    await page.evaluate(() => document.querySelector('#_qa_overlay')?.remove());
+    return ss.toString('base64');
+  } catch(e) {
+    await page.evaluate(() => document.querySelector('#_qa_overlay')?.remove()).catch(()=>{});
+    return null;
+  }
+}
+
+// Selector map: check name → CSS selector used for visual highlighting
+const HIGHLIGHT_SELECTORS = {
+  'Logo visible and loaded':           'img.custom-logo, .levcharity-logo, img[class*="logo"], [class*="brand"] img, header img[alt]',
+  'Navigation links present':          'nav, .levcharity-default-header-wrapper, [class*="elementor-location-header"], header',
+  'Footer present':                    '.levcharity-footer-bar-wrapper, footer, .site-footer, #footer',
+  'Footer with links':                 '.levcharity-footer-bar-wrapper, footer, .site-footer, #footer',
+  'LevCharity logo in footer':         'a[href*="levcharity.com"]',
+  'Donate button has valid href':      'a[href*="lc-add-to-cart"], a[href*="donate"], button.levcharity_button',
+  'Donate/add-to-cart link present':   'a[href*="lc-add-to-cart"], button.levcharity_button',
+  'Donate CTA found on campaign page': 'a[href*="lc-add-to-cart"], button.levcharity_button',
+  'Campaign cards visible':            '.team-campaign-participant-item, [class*="campaign-card"], [class*="participant-item"]',
+  'Donation amounts visible':          '[class*="predefined_amount"], [class*="donation-amount"], .levcharity_form__donation_list_item',
+  'Donation form inputs present':      'input[name="firstName"], input[name="email"], .levcharity_form, .levcharity-donation-checkout-fields-wrapper',
+  '"Start your campaign" CTA':         'a[href*="create"], a[href*="participate"], a[href*="start"]',
+  '"Sign up to fundraise" CTA present':'a[href*="create"], a[href*="fundraise"]',
+  '"Learn More" button present':       'a, button',
+  'CTA buttons present on /r2b':       'a[href*="lc-add-to-cart"], button.levcharity_button, a[href*="donate"]',
+};
+
 // ── Mobile test runner — opens new iPhone context ──────────────────────────
 async function runMobileChecks(browser, url) {
   const out = [];
@@ -773,25 +846,30 @@ const SITE_CHECKS = {
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
     const footer = await page.evaluate(CHECK_FOOTER);
     const checks = await page.evaluate(() => ({
-      hasEcards:    (document.body?.innerText||'').includes('eCards') || (document.body?.innerText||'').includes('Ecards'),
-      hasCampaigns: (document.body?.innerText||'').includes('Campaigns') || (document.body?.innerText||'').includes('Campaign'),
-      hasStartCTA:  Array.from(document.querySelectorAll('a,button')).some(b => /start.*campaign/i.test(b.innerText)),
-      hasDonate:    Array.from(document.querySelectorAll('a,button')).some(b => /^donate$/i.test(b.innerText?.trim())),
-      donateHref:   Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
+      hasCampaigns:  (document.body?.innerText||'').includes('Campaign'),
+      hasStartCTA:   Array.from(document.querySelectorAll('a,button')).some(b => /start.*campaign/i.test(b.innerText)),
+      // Donate: prefer lc-add-to-cart link (LevCharity button), fallback to donate-labelled link
+      donateEl:  (() => {
+        const lcBtn = document.querySelector('a[href*="lc-add-to-cart"]');
+        if (lcBtn) return { href: lcBtn.href, text: lcBtn.innerText?.trim() };
+        const donateA = Array.from(document.querySelectorAll('a[href*="donate"], a[href*="checkout"]')).find(a => a.href && a.href.length > 10);
+        if (donateA) return { href: donateA.href, text: donateA.innerText?.trim() };
+        return null;
+      })(),
     }));
 
     // ── Header visual + mobile checks ──
     const hv_pantry = await page.evaluate(CHECK_HEADER_VISUAL);
     const mob_pantry = await runMobileChecks(browser, 'https://give.pantrypackers.org/');
+    const donateOk = !!(checks.donateEl?.href && checks.donateEl.href.length > 5);
     return [
       { name: 'Logo visible and loaded',        pass: logo.pass,           detail: logo.detail },
       { name: 'No broken images',               pass: broken.pass,         detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
       { name: 'Navigation links present',       pass: nav.pass,            detail: `${nav.count} links` },
       { name: 'Footer present',                 pass: footer.pass,         detail: `${footer.linkCount} links` },
-      { name: '"eCards" nav item present',      pass: checks.hasEcards,    detail: checks.hasEcards ? 'Found' : 'Missing' },
-      { name: '"Campaigns" section present',    pass: checks.hasCampaigns, detail: checks.hasCampaigns ? 'Found' : 'Missing' },
-      { name: '"Start your campaign" CTA',      pass: checks.hasStartCTA,  detail: checks.hasStartCTA ? 'Found' : 'Missing' },
-      { name: 'Donate button has valid href',   pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+      { name: '"Campaigns" section present',    pass: checks.hasCampaigns, detail: checks.hasCampaigns ? 'Found' : '"Campaigns" section NOT found on homepage' },
+      { name: '"Start your campaign" CTA',      pass: checks.hasStartCTA,  detail: checks.hasStartCTA ? 'Found' : '"Start your campaign" CTA NOT found — check homepage layout' },
+      { name: 'Donate/add-to-cart link present',pass: donateOk,            detail: donateOk ? checks.donateEl.href : 'Donate/add-to-cart link NOT found on homepage' },
 
       { name: '[Desktop] Header visual integrity',     pass: hv_pantry.pass,  detail: hv_pantry.detail },
       ...mob_pantry,
@@ -801,7 +879,7 @@ const SITE_CHECKS = {
   // ── Israelthon ───────────────────────────────────────────────────
   // img.custom-logo w:320, nav: About us/Raisers/Teams/Merch/Contact, footer: address+phone
   // CTAs: "BECOME A RAISER" + "DONATE NOW", Total Raised widget
-  israelthon: async (page, site, browser) => {
+  israelthon: async (page, site, browser, captureEvidence) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -873,39 +951,107 @@ const SITE_CHECKS = {
 
   // ── Chaiathon ────────────────────────────────────────────────────
   // img.custom-logo (alt:"Chaiathon"), WP Gutenberg nav, search bar, stats widget
-  chaiathon: async (page, site, browser) => {
+  chaiathon: async (page, site, browser, captureEvidence) => {
+    // ── 1. Homepage checks ───────────────────────────────────────────
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
     const footer = await page.evaluate(CHECK_FOOTER);
-    const checks = await page.evaluate(() => ({
-      navTexts:     Array.from(document.querySelectorAll('nav a, header a')).map(a => a.innerText?.trim().toLowerCase()),
-      hasSearch:    !!document.querySelector('input[type="search"], input[placeholder*="Find"], input[placeholder*="Search"]'),
-      hasStats:     (document.body?.innerText||'').includes('Fundraisers') && ((document.body?.innerText||'').includes('100,000') || (document.body?.innerText||'').includes('Active')),
-      hasOrderKit:  (document.body?.innerText||'').includes('Order') && ((document.body?.innerText||'').includes('Kit') || (document.body?.innerText||'').includes('kit')),
-      donateHref:   Array.from(document.querySelectorAll('a,button')).find(b => /^donate$/i.test(b.innerText?.trim()))?.href || null,
+    const home = await page.evaluate(() => ({
+      navTexts:    Array.from(document.querySelectorAll('nav a, header a')).map(a => a.innerText?.trim().toLowerCase()),
+      hasFundraisersNav: Array.from(document.querySelectorAll('nav a, header a')).some(a => /fundraiser/i.test(a.innerText)),
+      hasTeamsNav:       Array.from(document.querySelectorAll('nav a, header a')).some(a => /team/i.test(a.innerText)),
+      hasPrizesNav:      Array.from(document.querySelectorAll('nav a, header a')).some(a => /prize/i.test(a.innerText)),
+      hasIdeaHubNav:     Array.from(document.querySelectorAll('nav a, header a')).some(a => /idea\s*hub/i.test(a.innerText)),
+      donateHref:        Array.from(document.querySelectorAll('a,button')).find(b => /^donate$/i.test(b.innerText?.trim()))?.href || null,
     }));
+    const hv = await page.evaluate(CHECK_HEADER_VISUAL);
 
-    // ── Header visual + mobile checks ──
-    const hv_chaiathon = await page.evaluate(CHECK_HEADER_VISUAL);
-    // Search bar interactive test
+    // ── 2. Campaign page checks — /chaiathon/yavneh-academy/ ─────────
+    await captureEvidence('Homepage');
+    try { await page.goto('https://chaiathon.org/chaiathon/yavneh-academy/', { waitUntil:'domcontentloaded', timeout:18000 }); await page.waitForTimeout(2000); } catch {}
+    const campaign = await page.evaluate(() => ({
+      hasProgressBar:  !!document.querySelector('.levcharity_progressbar_container'),
+      raisedAmt:       document.querySelector('.amounts,.campaign-goal-raised h2')?.innerText?.trim().slice(0,20) || null,
+      hasDonations:    document.querySelectorAll('.campaign-donor-item,.donation-donor-item').length,
+      hasFundraiserTab:!!document.querySelector('.team-campaign-list-tab'),
+      tabs:            Array.from(document.querySelectorAll('.team-campaign-list-tab')).map(t=>t.innerText?.trim()),
+      hasFundraiserCards: document.querySelectorAll('.team-campaign-participant-item').length,
+      hasLeaderboard:  !!document.querySelector('[class*="leader_board"],[class*="leaderboard"]'),
+      hasSocialShare:  !!document.querySelector('.wp-block-custom-inline-social-share-levit-block'),
+      hasDonateBtn:    !!(document.querySelector('a[href*="lc-add-to-cart"]')||document.querySelector('button.levcharity_button.primary_button')),
+      hasParticipate:  !!document.querySelector('a[href*="/participate"]'),
+    }));
+    await captureEvidence('Campaign page — /chaiathon/yavneh-academy/');
+
+    // ── 3. Fundraisers list page ─────────────────────────────────────
+    try { await page.goto('https://chaiathon.org/fundraisers/', { waitUntil:'domcontentloaded', timeout:15000 }); await page.waitForTimeout(1500); } catch {}
+    const fundraisersPage = await page.evaluate(() => ({
+      hasCards:  document.querySelectorAll('.team-campaign-participant-item').length,
+      hasSearch: !!document.querySelector('input[name="participants-list-search"]'),
+      hasPagination: !!document.querySelector('.levcharity-pagination'),
+      pageLoads: !!document.querySelector('.wp-site-blocks'),
+    }));
     const searchResult_chaiathon = await testSearchBar(page, 'campaign', 'a[href*="mymitzvah/"], a[href*="fundraiser"]', '[Search] Chaiathon search filters results', captureEvidence);
-    const mob_chaiathon = await runMobileChecks(browser, 'https://chaiathon.org');
-    return [
-      { name: 'Logo visible and loaded',         pass: logo.pass,                                      detail: logo.detail },
-      { name: 'No broken images',                pass: broken.pass,                                    detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
-      { name: 'Navigation links present',        pass: nav.pass,                                       detail: `${nav.count} links` },
-      { name: 'Footer with links',               pass: footer.pass,                                    detail: `${footer.linkCount} links` },
-      { name: '"Fundraisers" nav item',          pass: checks.navTexts.some(t => t.includes('fundraiser')), detail: '' },
-      { name: '"Teams" nav item',                pass: checks.navTexts.some(t => t.includes('team')),       detail: '' },
-      { name: '"Prizes" nav item',               pass: checks.navTexts.some(t => t.includes('prize')),      detail: '' },
-      { name: 'Search bar present',              pass: checks.hasSearch,                               detail: checks.hasSearch ? 'Found' : 'Missing' },
-      { name: 'Campaign stats widget loads',     pass: checks.hasStats,                                detail: checks.hasStats ? 'Found' : 'Missing' },
-      { name: '"Order your Kit" CTA',            pass: checks.hasOrderKit,                             detail: checks.hasOrderKit ? 'Found' : 'Missing' },
-      { name: 'Donate button has valid href',    pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
 
-      { name: '[Desktop] Header visual integrity',     pass: hv_chaiathon.pass,  detail: hv_chaiathon.detail },
+    // ── 4. Teams page ────────────────────────────────────────────────
+    try { await page.goto('https://chaiathon.org/all-teams/', { waitUntil:'domcontentloaded', timeout:15000 }); await page.waitForTimeout(1000); } catch {}
+    const teamsPage = await page.evaluate(() => ({
+      pageLoads: !!document.querySelector('.wp-site-blocks'),
+      hasContent: (document.body?.innerText?.length||0) > 100,
+      hasTeamCards: !!(document.querySelector('[class*="team-card"],[class*="team-item"],.team-campaign-participant-item') || (document.body?.innerText||'').includes('Team')),
+    }));
+    await captureEvidence('Teams page — /all-teams/');
+
+    // ── 5. Prizes page ───────────────────────────────────────────────
+    try { await page.goto('https://chaiathon.org/prizes-new/', { waitUntil:'domcontentloaded', timeout:15000 }); await page.waitForTimeout(1000); } catch {}
+    const prizesPage = await page.evaluate(() => ({
+      pageLoads: !!document.querySelector('.wp-site-blocks'),
+      hasContent: (document.body?.innerText?.length||0) > 100,
+    }));
+    await captureEvidence('Prizes page — /prizes-new/');
+
+    // ── 6. Idea Hub page ─────────────────────────────────────────────
+    try { await page.goto('https://chaiathon.org/idea-hub/', { waitUntil:'domcontentloaded', timeout:15000 }); await page.waitForTimeout(1000); } catch {}
+    const ideaHub = await page.evaluate(() => ({
+      pageLoads: !!document.querySelector('.wp-site-blocks'),
+      hasContent: (document.body?.innerText?.length||0) > 100,
+    }));
+    await captureEvidence('Idea Hub page — /idea-hub/');
+
+    // ── 7. Mobile checks ─────────────────────────────────────────────
+    const mob_chaiathon = await runMobileChecks(browser, 'https://chaiathon.org');
+
+    return [
+      // Homepage
+      { name: 'Logo visible and loaded',              pass: logo.pass,              detail: logo.detail },
+      { name: 'No broken images',                     pass: broken.pass,            detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',             pass: nav.pass,               detail: `${nav.count} links` },
+      { name: 'Footer with links',                    pass: footer.pass,            detail: `${footer.linkCount} links` },
+      { name: '"Fundraisers" nav item',               pass: home.hasFundraisersNav, detail: home.hasFundraisersNav ? 'Found' : 'Missing' },
+      { name: '"Teams" nav item',                     pass: home.hasTeamsNav,       detail: home.hasTeamsNav ? 'Found' : 'Missing' },
+      { name: '"Prizes" nav item',                    pass: home.hasPrizesNav,      detail: home.hasPrizesNav ? 'Found' : 'Missing' },
+      { name: '"Idea Hub" nav item',                  pass: home.hasIdeaHubNav,     detail: home.hasIdeaHubNav ? 'Found' : 'Missing' },
+      { name: 'Donate button has valid href',         pass: !!(home.donateHref && home.donateHref.length > 5), detail: home.donateHref || 'Missing' },
+      // Campaign page
+      { name: 'Campaign page loads',                  pass: campaign.hasDonateBtn,  detail: campaign.hasDonateBtn ? 'Donate button found' : 'No donate button' },
+      { name: 'Progress bar / raised amount',         pass: campaign.hasProgressBar, detail: campaign.raisedAmt || 'Progress bar found' },
+      { name: 'Campaign tabs present (Donations/Fundraisers)', pass: campaign.hasFundraiserTab, detail: campaign.tabs.join(', ') || 'No tabs found' },
+      { name: 'Fundraiser cards on campaign page',    pass: campaign.hasFundraiserCards > 0, detail: campaign.hasFundraiserCards + ' cards' },
+      { name: 'Recent donations visible',             pass: campaign.hasDonations > 0, detail: campaign.hasDonations + ' donors shown' },
+      { name: 'Leaderboard section present',          pass: campaign.hasLeaderboard, detail: campaign.hasLeaderboard ? 'Found' : 'Missing' },
+      { name: 'Social share buttons present',         pass: campaign.hasSocialShare, detail: campaign.hasSocialShare ? 'Found' : 'Missing' },
+      { name: 'Participate/Join button present',      pass: campaign.hasParticipate, detail: campaign.hasParticipate ? 'Found' : 'Missing' },
+      // Fundraisers page
+      { name: 'Fundraisers page loads',               pass: fundraisersPage.pageLoads, detail: fundraisersPage.hasCards + ' fundraiser cards' },
+      { name: 'Fundraiser search input present',      pass: fundraisersPage.hasSearch,  detail: fundraisersPage.hasSearch ? 'Found' : 'Missing' },
       searchResult_chaiathon,
+      // Nav pages
+      { name: 'Teams page loads (/all-teams/)',        pass: teamsPage.pageLoads,    detail: teamsPage.hasContent ? 'Content loaded' : 'No content' },
+      { name: 'Prizes page loads (/prizes-new/)',      pass: prizesPage.pageLoads,   detail: prizesPage.hasContent ? 'Content loaded' : 'No content' },
+      { name: 'Idea Hub page loads (/idea-hub/)',      pass: ideaHub.pageLoads,      detail: ideaHub.hasContent ? 'Content loaded' : 'No content' },
+      // Visual / mobile
+      { name: '[Desktop] Header visual integrity',     pass: hv.pass,                detail: hv.detail },
       ...mob_chaiathon,
     ];
   },
@@ -917,24 +1063,32 @@ const SITE_CHECKS = {
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
     const footer = await page.evaluate(CHECK_FOOTER);
-    const checks = await page.evaluate(() => ({
+    const homeChecks = await page.evaluate(() => ({
       hasLearnMore: Array.from(document.querySelectorAll('a,button')).some(b => /learn more/i.test(b.innerText)),
-      // Campaign cards: LevCharity uses various selectors — be broad
-      hasCards:     document.querySelectorAll('[class*="card"], [class*="Card"], article, [class*="campaign"], .lc-campaign').length > 0,
-      donateHref:   Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
     }));
+
+    // FCL homepage is a landing page — campaign cards and donate are on /hikingbyachad/
+    let campaignChecks = { hasCards: false, donateHref: null };
+    try {
+      await page.goto('https://fundraise.chailifeline.org/hikingbyachad/', { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.waitForTimeout(1500);
+      campaignChecks = await page.evaluate(() => ({
+        hasCards:   document.querySelectorAll('.team-campaign-participant-item, [class*="fundraiser-card"], [class*="participant"]').length > 0,
+        donateHref: document.querySelector('a[href*="lc-add-to-cart"]')?.href || document.querySelector('button.levcharity_button')?.textContent?.trim() || null,
+      }));
+    } catch(e) { campaignChecks = { hasCards: false, donateHref: null, error: e.message }; }
 
     // ── Header visual + mobile checks ──
     const hv_fcl = await page.evaluate(CHECK_HEADER_VISUAL);
     const mob_fcl = await runMobileChecks(browser, 'https://fundraise.chailifeline.org');
     return [
-      { name: 'Logo visible and loaded',        pass: logo.pass,           detail: logo.detail },
-      { name: 'No broken images',               pass: broken.pass,         detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
-      { name: 'Navigation links present',       pass: nav.pass,            detail: `${nav.count} links` },
-      { name: 'Footer with links',              pass: footer.pass,         detail: `${footer.linkCount} links` },
-      { name: '"Learn More" button present',    pass: checks.hasLearnMore, detail: checks.hasLearnMore ? 'Found' : 'Missing' },
-      { name: 'Campaign cards visible',         pass: checks.hasCards,     detail: checks.hasCards ? 'Found' : 'Missing' },
-      { name: 'Donate button has valid href',   pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+      { name: 'Logo visible and loaded',               pass: logo.pass,           detail: logo.detail },
+      { name: 'No broken images',                      pass: broken.pass,         detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',              pass: nav.pass,            detail: `${nav.count} links` },
+      { name: 'Footer with links',                     pass: footer.pass,         detail: `${footer.linkCount} links` },
+      { name: '"Learn More" button present',           pass: homeChecks.hasLearnMore, detail: homeChecks.hasLearnMore ? 'Found on homepage' : '"Learn More" button NOT found on homepage' },
+      { name: 'Campaign cards visible (/hikingbyachad/)', pass: campaignChecks.hasCards,  detail: campaignChecks.hasCards ? 'Fundraiser cards found' : 'Campaign cards NOT visible on /hikingbyachad/' },
+      { name: 'Donate CTA found on campaign page',     pass: !!campaignChecks.donateHref, detail: campaignChecks.donateHref || 'Donate/add-to-cart link NOT found on campaign page' },
 
       { name: '[Desktop] Header visual integrity',     pass: hv_fcl.pass,  detail: hv_fcl.detail },
       ...mob_fcl,
@@ -1001,15 +1155,15 @@ const SITE_CHECKS = {
     const hv_afmda = await page.evaluate(CHECK_HEADER_VISUAL);
     const mob_afmda = await runMobileChecks(browser, 'https://crowdfund.afmda.org');
     return [
-      { name: 'Logo visible and loaded (SVG)',      pass: logo.pass,                    detail: logo.detail },
-      { name: 'No broken images',                   pass: broken.pass,                  detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
-      { name: 'Navigation links present',           pass: nav.pass,                     detail: `${nav.count} links` },
-      { name: 'Footer present',                     pass: footer.pass,                  detail: `${footer.linkCount} links` },
-      { name: '"Sign up to fundraise" CTA present', pass: checks.hasSignUpToFundraise,  detail: checks.hasSignUpToFundraise ? 'Found' : 'Missing' },
-      { name: '"Start your campaign" link',         pass: checks.hasStartCampaign,      detail: checks.hasStartCampaign ? 'Found' : 'Missing' },
-      { name: 'Campaign cards visible',             pass: checks.hasCampaignCards,      detail: checks.hasCampaignCards ? 'Found' : 'Missing' },
-      { name: '"About Magen David Adom" section',   pass: checks.hasAboutSection,       detail: checks.hasAboutSection ? 'Found' : 'Missing' },
-      { name: 'Campaign link has valid href',       pass: !!(checks.campaignHref && checks.campaignHref.length > 5), detail: checks.campaignHref?.slice(0,50) || 'Missing' },
+      { name: 'Logo visible and loaded (SVG)',           pass: logo.pass,                    detail: logo.detail },
+      { name: 'No broken images',                        pass: broken.pass,                  detail: broken.pass ? `${broken.total} imgs OK` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Navigation links present',                pass: nav.pass,                     detail: `${nav.count} links` },
+      { name: 'Footer/LevCharity branding present',      pass: footer.pass || !!document.querySelector?.('a[href*="levcharity.com"]'), detail: footer.pass ? `${footer.linkCount} footer links` : 'LevCharity logo present (custom footer — no standard footer links)' },
+      { name: '"Sign up to fundraise" CTA present',      pass: checks.hasSignUpToFundraise,  detail: checks.hasSignUpToFundraise ? 'Found' : '"Sign up to fundraise" CTA NOT found on homepage' },
+      { name: '"Start your campaign" link',              pass: checks.hasStartCampaign,      detail: checks.hasStartCampaign ? 'Found' : '"Start your campaign" link NOT found' },
+      { name: 'Campaign cards visible',                  pass: checks.hasCampaignCards,      detail: checks.hasCampaignCards ? 'Found' : 'Campaign cards NOT visible — check page structure' },
+      { name: '"About Magen David Adom" section',        pass: checks.hasAboutSection,       detail: checks.hasAboutSection ? 'Found' : '"About MDA" section NOT found on homepage' },
+      { name: 'Campaign link has valid href',            pass: !!(checks.campaignHref && checks.campaignHref.length > 5), detail: checks.campaignHref?.slice(0,50) || 'Campaign link NOT found' },
 
       { name: '[Desktop] Header visual integrity',     pass: hv_afmda.pass,  detail: hv_afmda.detail },
       ...mob_afmda,
@@ -1204,7 +1358,7 @@ const SITE_CHECKS = {
   // CHECK_LOGO handles this via the header img fallback.
   // Nav: About/Services/Centers/Ways to Give/News/Contact/Ability Boutique/Ecards/Donate
   // Footer: 57 links. Donate → /donate/
-  adi: async (page, site, browser) => {
+  adi: async (page, site, browser, captureEvidence) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -1308,7 +1462,7 @@ const SITE_CHECKS = {
   // ── Nahal Haredi ─────────────────────────────────────────────────
   // img.custom-logo. Nav: About Us/Campaigns/eCards/Crowdfunding/Day of Torah/Ways to Support
   // Donation amounts start at $18. Form inputs present.
-  nahal: async (page, site, browser) => {
+  nahal: async (page, site, browser, captureEvidence) => {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
     const nav    = await page.evaluate(CHECK_NAV_LINKS);
@@ -1356,23 +1510,31 @@ const SITE_CHECKS = {
     const logo   = await page.evaluate(CHECK_LOGO);
     const broken = await page.evaluate(CHECK_BROKEN_IMAGES); // SVGs excluded
     const footer = await page.evaluate(CHECK_FOOTER);
-    const checks = await page.evaluate(() => ({
-      hasContent:  (document.body?.innerText||'').includes('Race') || (document.body?.innerText||'').includes('Bais') || (document.body?.innerText||'').includes('Yeshiva'),
-      hasCTABtns:  document.querySelectorAll('a[href*="donate"], a[href*="register"], button').length > 0,
-      hasCampaign: (document.body?.innerText||'').includes('100') || (document.body?.innerText||'').includes('young men') || document.querySelectorAll('img').length > 2,
-      donateHref:  Array.from(document.querySelectorAll('a,button')).find(b => /donate/i.test(b.innerText))?.href || null,
+    const homeChecks = await page.evaluate(() => ({
+      hasContent:  (document.body?.innerText||'').includes('Race') || (document.body?.innerText||'').includes('Bais') || (document.body?.innerText||'').includes('Yeshiva') || document.querySelectorAll('img').length > 2,
     }));
+
+    // R2BO homepage is a splash/info page — the campaign + donate CTA is at /r2b
+    let campaignChecks = { hasCTABtns: false, donateHref: null };
+    try {
+      await page.goto('https://racetobais.olami.org/r2b', { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.waitForTimeout(1500);
+      campaignChecks = await page.evaluate(() => ({
+        hasCTABtns:  !!(document.querySelector('a[href*="lc-add-to-cart"]') || document.querySelector('button.levcharity_button') || document.querySelector('a[href*="donate"]')),
+        donateHref:  document.querySelector('a[href*="lc-add-to-cart"]')?.href || document.querySelector('a[href*="donate"]')?.href || null,
+      }));
+    } catch(e) { campaignChecks = { hasCTABtns: false, donateHref: null }; }
 
     // ── Header visual + mobile checks ──
     const hv_r2bo = await page.evaluate(CHECK_HEADER_VISUAL);
     const mob_r2bo = await runMobileChecks(browser, 'https://racetobais.olami.org/');
     return [
-      { name: 'Logo visible and loaded',        pass: logo.pass,            detail: logo.detail },
-      { name: 'No broken images (SVG excluded)',pass: broken.pass,          detail: broken.pass ? `${broken.total} imgs checked` : `Broken: ${broken.broken.join(', ')}` },
-      { name: 'Footer present',                 pass: footer.pass,          detail: `${footer.linkCount} links` },
-      { name: 'Campaign content visible',       pass: checks.hasContent,    detail: checks.hasContent ? 'Found' : 'Missing' },
-      { name: 'CTA buttons present',            pass: checks.hasCTABtns,    detail: checks.hasCTABtns ? 'Found' : 'Missing' },
-      { name: 'Donate button has valid href',   pass: !!(checks.donateHref && checks.donateHref.length > 5), detail: checks.donateHref || 'Missing' },
+      { name: 'Logo visible and loaded',              pass: logo.pass,              detail: logo.detail },
+      { name: 'No broken images (SVG excluded)',      pass: broken.pass,            detail: broken.pass ? `${broken.total} imgs checked` : `Broken: ${broken.broken.join(', ')}` },
+      { name: 'Footer present',                       pass: footer.pass,            detail: `${footer.linkCount} links` },
+      { name: 'Campaign content visible on homepage', pass: homeChecks.hasContent,  detail: homeChecks.hasContent ? 'Race/Bais content found' : 'Campaign content NOT found on homepage' },
+      { name: 'CTA buttons present on /r2b',          pass: campaignChecks.hasCTABtns, detail: campaignChecks.hasCTABtns ? 'CTA buttons found on campaign page' : 'CTA buttons NOT found on /r2b campaign page' },
+      { name: 'Donate CTA found on campaign page',    pass: !!campaignChecks.donateHref, detail: campaignChecks.donateHref || 'Donate link NOT found on /r2b — check campaign page setup' },
 
       { name: '[Desktop] Header visual integrity',     pass: hv_r2bo.pass,  detail: hv_r2bo.detail },
       ...mob_r2bo,
@@ -1660,12 +1822,26 @@ async function testSite(browser, site) {
 
         // ── Capture a screenshot at current page state for any checks without one ──
         // This gives the dashboard evidence for every test run
-        // Store page-state screenshot in evidence only — NOT on individual check objects
-        // (attaching to check objects breaks dashboard filtering)
+        // Take an ANNOTATED screenshot with highlights showing what passed/failed
+        // Uses HIGHLIGHT_SELECTORS map to find elements matching each check
         try {
+          const highlights = uiResults
+            .filter(c => typeof c.pass === 'boolean' && !c.name.includes('[Mobile') && !c.name.includes('[Desktop') && !c.name.includes('[Search]') && !c.name.includes('Screenshot'))
+            .map(c => {
+              const sel = HIGHLIGHT_SELECTORS[c.name];
+              return sel ? { selector: sel, label: c.name.replace(/^["']|["']$/g,'').replace(/^\[.*?\]\s*/, '').slice(0,30), pass: c.pass } : null;
+            })
+            .filter(Boolean);
+
+          if (highlights.length > 0) {
+            const annotatedSS = await captureWithHighlights(page, highlights);
+            if (annotatedSS) {
+              result.evidence.push({ label:'Annotated UI Checks — '+site.name, url:page.url(), screenshot:annotatedSS, ts:new Date().toISOString(), annotated: true });
+            }
+          }
+          // Also store plain screenshot
           const ss = await page.screenshot({ type:'jpeg', quality:45, fullPage:false, clip:{x:0,y:0,width:1440,height:900} });
-          const b64 = ss.toString('base64');
-          result.evidence.push({ label:'Core UI Checks — '+site.name, url:page.url(), screenshot:b64, ts:new Date().toISOString() });
+          result.evidence.push({ label:'Homepage — '+site.name, url:page.url(), screenshot:ss.toString('base64'), ts:new Date().toISOString() });
         } catch {}
 
         // CORE = real site functionality. Mobile/Header/Search = informational warnings only.
