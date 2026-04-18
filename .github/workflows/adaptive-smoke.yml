@@ -1,0 +1,93 @@
+// netlify/functions/trigger-test.js
+// This function holds the GitHub token server-side.
+// Set GH_TOKEN and GH_REPO as Netlify environment variables.
+// Anyone with the Levi URL can trigger tests — no token required.
+
+exports.handler = async function(event) {
+  // Handle CORS preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      },
+      body: '',
+    };
+  }
+
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
+  }
+
+  const GH_TOKEN = process.env.GH_TOKEN;
+  const GH_REPO  = process.env.GH_REPO || 'neohanna17/qa-agent';
+
+  if (!GH_TOKEN) {
+    return {
+      statusCode: 500,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ error: 'GH_TOKEN not set in Netlify environment variables. Contact your admin.' }),
+    };
+  }
+
+  let body;
+  try {
+    body = JSON.parse(event.body);
+  } catch(e) {
+    return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: 'Invalid JSON' };
+  }
+
+  const { url, name, platform, namespace, team } = body;
+
+  if (!url) {
+    return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: 'URL is required' };
+  }
+
+  try {
+    const resp = await fetch(
+      `https://api.github.com/repos/${GH_REPO}/actions/workflows/adaptive-smoke.yml/dispatches`,
+      {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GH_TOKEN}`,
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          inputs: {
+            custom_url:     url,
+            site_name:      name      || '',
+            site_type:      platform  || '',
+            site_namespace: namespace || '',
+            client_id:      team      || '',
+          },
+        }),
+      }
+    );
+
+    if (resp.status === 204) {
+      return {
+        statusCode: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ ok: true, message: 'Test triggered successfully' }),
+      };
+    }
+
+    const text = await resp.text();
+    return {
+      statusCode: resp.status,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ error: 'GitHub API error: ' + text.slice(0, 200) }),
+    };
+
+  } catch(e) {
+    return {
+      statusCode: 500,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ error: 'Function error: ' + e.message }),
+    };
+  }
+};
