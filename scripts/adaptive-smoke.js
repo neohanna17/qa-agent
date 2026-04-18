@@ -8,7 +8,7 @@
 
 'use strict';
 const { chromium } = require('playwright');
-const admin = require('firebase-admin');
+const https = require('https');
 
 const CUSTOM_URL     = process.env.CUSTOM_URL     || '';
 const SITE_NAME      = process.env.SITE_NAME      || '';
@@ -447,18 +447,42 @@ async function navPageScreenshots(browser, navLinks, evidence) {
   }
 }
 
-// ─── FIREBASE ─────────────────────────────────────────────────────────────────
-function initFirebase(){
-  if(!DB_URL){log(YELLOW,'No FIREBASE_DATABASE_URL');return null;}
-  try{admin.initializeApp({credential:admin.credential.applicationDefault(),databaseURL:DB_URL});return admin.database();}
-  catch(e){try{const app=admin.initializeApp({databaseURL:DB_URL},'levi');return admin.database(app);}catch(e2){log(RED,'Firebase init failed: '+e2.message);return null;}}
+// ─── FIREBASE REST API (no credentials needed for public DB) ────────────────
+const DB_BASE = (process.env.FIREBASE_DATABASE_URL || 'https://qa-tracker-73b87-default-rtdb.firebaseio.com').replace(/\/$/, '');
+
+function firebaseRequest(method, path, data) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(DB_BASE + path + '.json');
+    const body = data ? JSON.stringify(data) : null;
+    const options = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method,
+      headers: { 'Content-Type': 'application/json', ...(body ? { 'Content-Length': Buffer.byteLength(body) } : {}) }
+    };
+    const req = https.request(options, res => {
+      let raw = '';
+      res.on('data', c => raw += c);
+      res.on('end', () => {
+        try { resolve(JSON.parse(raw)); } catch(e) { resolve(raw); }
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
 }
-async function saveResults(db,ns,results){
-  if(!db)return;
-  const date=new Date().toISOString().slice(0,10);
-  await db.ref(`customResults/${date}/${ns}`).set(results);
-  await db.ref(`customLatest/${ns}`).set(date);
-  log(GREEN,`  ✓ Saved to Firebase`);
+
+async function saveResults(ns, results) {
+  if (!DB_BASE) { log(YELLOW, 'No DB_URL — skipping save'); return; }
+  const date = new Date().toISOString().slice(0, 10);
+  try {
+    await firebaseRequest('PUT', `/customResults/${date}/${ns}`, results);
+    await firebaseRequest('PUT', `/customLatest/${ns}`, JSON.stringify(date));
+    log(GREEN, `  ✓ Saved to Firebase: customResults/${date}/${ns}`);
+  } catch(e) {
+    log(RED, '  ✗ Firebase save failed: ' + e.message);
+  }
 }
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
@@ -469,8 +493,7 @@ async function saveResults(db,ns,results){
   const ns=SITE_NAMESPACE||url.replace(/https?:\/\//,'').replace(/[^a-zA-Z0-9]/g,'_').replace(/__+/g,'_').slice(0,40);
 
   log(CYAN,`\n🔍 Levi v3 — ${url}`);
-  const db=initFirebase();
-  const browser=await chromium.launch({args:['--no-sandbox','--disable-setuid-sandbox']});
+    const browser=await chromium.launch({args:['--no-sandbox','--disable-setuid-sandbox']});
   const checks=[],evidence=[],consoleErrors=[];
 
   try{
@@ -519,7 +542,7 @@ async function saveResults(db,ns,results){
     log(CYAN,`\n  ── ${passed}/${checks.length} passed (${score}%) ──`);
     checks.forEach(c=>log(c.pass?GREEN:RED,`  ${c.pass?'✓':'✗'} ${c.name}: ${c.detail}`));
 
-    await saveResults(db,ns,{url,name,siteType:platform,status,score,runAt:new Date().toISOString(),githubRunId:GITHUB_RUN_ID,uiChecks:checks,evidence});
+    await saveResults(ns,{url,name,siteType:platform,status,score,runAt:new Date().toISOString(),githubRunId:GITHUB_RUN_ID,uiChecks:checks,evidence});
     log(GREEN,`\n✅ Done — ${score}% (${passed}/${checks.length} checks)\n`);
 
   }catch(err){
@@ -528,6 +551,6 @@ async function saveResults(db,ns,results){
     process.exit(1);
   }finally{
     await browser.close();
-    if(db)process.exit(0);
+    process.exit(0);
   }
 })();
