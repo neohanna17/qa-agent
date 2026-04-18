@@ -471,6 +471,8 @@ const DONATE_URLS = {
   nahal:      'https://give.nahalharedi.org/',
   r2bo:       'https://racetobais.olami.org/',
   ots:        'https://fundraise.ots.org.il/',
+  mizrachi:   'https://fundraise.mizrachi.ca/',
+  kolleldc:   'https://fundraise.kolleldc.com/kollel-derech-chaim-mission/',
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -495,6 +497,8 @@ const SITES = [
   { id: 'nahal',      name: 'Nahal Haredi',             url: 'https://give.nahalharedi.org/'             },
   { id: 'r2bo',       name: 'Race to Bais Olami',       url: 'https://racetobais.olami.org/'             },
   { id: 'ots',        name: 'Ohr Torah Stone',          url: 'https://fundraise.ots.org.il/'             },
+  { id: 'mizrachi',   name: 'Mizrachi',                 url: 'https://fundraise.mizrachi.ca/'            },
+  { id: 'kolleldc',   name: 'Kollel DC',                url: 'https://fundraise.kolleldc.com/'           },
 ];
 
 // ─────────────────────────────────────────────────────────────────
@@ -1573,6 +1577,67 @@ const SITE_CHECKS = {
 
       { name: '[Desktop] Header visual integrity',     pass: hv_ots.pass,  detail: hv_ots.detail },
       ...mob_ots,
+    ];
+  },
+
+  // ── Mizrachi ─────────────────────────────────────────────────────
+  // fundraise.mizrachi.ca — Crowdfunding campaign with Teams + Fundraisers
+  mizrachi: async (page, site, browser) => {
+    const logo   = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const nav    = await page.evaluate(CHECK_NAV_LINKS);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    const checks = await page.evaluate(() => ({
+      hasFundraiserCards: document.querySelectorAll('.team-campaign-participant-item').length,
+      hasProgress: !!document.querySelector('.levcharity_progressbar_container,[class*="progress"]'),
+      hasAmounts:  !!document.querySelector('.amounts,h2[class*="raised"],h2[class*="goal"]'),
+      donateHref:  document.querySelector('a[href*="lc-add-to-cart"]')?.href || document.querySelector('button.levcharity_button.primary_button')?.textContent || null,
+      hasSearch:   !!document.querySelector('input[name="participants-list-search"],input[type="search"]'),
+    }));
+    const hv = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob = await runMobileChecks(browser, 'https://fundraise.mizrachi.ca/');
+    return [
+      { name: 'Logo visible and loaded',           pass: logo.pass,   detail: logo.detail },
+      { name: 'No broken images',                  pass: broken.pass, detail: broken.pass ? broken.total+' imgs OK' : 'Broken: '+broken.broken.slice(0,3).join(', ') },
+      { name: 'Navigation links present',          pass: nav.pass,    detail: nav.count+' links' },
+      { name: 'Footer present',                    pass: footer.pass, detail: footer.linkCount+' links' },
+      { name: 'Fundraiser cards visible',          pass: checks.hasFundraiserCards > 0, detail: checks.hasFundraiserCards+' cards' },
+      { name: 'Campaign progress/raised visible',  pass: checks.hasProgress||checks.hasAmounts, detail: checks.hasAmounts?'Amounts visible':checks.hasProgress?'Progress bar found':'Missing' },
+      { name: 'Donate/fundraise link present',     pass: !!checks.donateHref, detail: checks.donateHref||'NOT found' },
+      { name: '[Desktop] Header visual integrity', pass: hv.pass, detail: hv.detail },
+      ...mob,
+    ];
+  },
+
+  // ── Kollel DC ─────────────────────────────────────────────────────
+  // fundraise.kolleldc.com — Crowdfunding campaigns (multiple campaigns)
+  kolleldc: async (page, site, browser) => {
+    const logo   = await page.evaluate(CHECK_LOGO);
+    const broken = await page.evaluate(CHECK_BROKEN_IMAGES);
+    const nav    = await page.evaluate(CHECK_NAV_LINKS);
+    const footer = await page.evaluate(CHECK_FOOTER);
+    // Check the specific campaign page
+    try { await page.goto('https://fundraise.kolleldc.com/kollel-derech-chaim-mission/', { waitUntil:'domcontentloaded', timeout:15000 }); await page.waitForTimeout(1000); } catch {}
+    const checks = await page.evaluate(() => ({
+      hasFundraiserCards: document.querySelectorAll('.team-campaign-participant-item').length,
+      hasProgress: !!document.querySelector('.levcharity_progressbar_container,[class*="progress"]'),
+      hasAmounts:  !!document.querySelector('.amounts,h2[class*="raised"]'),
+      donateHref:  document.querySelector('a[href*="lc-add-to-cart"]')?.href || null,
+      campaignLoads: (document.body?.innerText?.trim().length||0) > 50,
+    }));
+    const hv = await page.evaluate(CHECK_HEADER_VISUAL);
+    const mob = await runMobileChecks(browser, 'https://fundraise.kolleldc.com/');
+    return [
+      { name: 'Logo visible and loaded',           pass: logo.pass,   detail: logo.detail },
+      { name: 'No broken images',                  pass: broken.pass, detail: broken.pass ? broken.total+' imgs OK' : 'Broken: '+broken.broken.slice(0,3).join(', ') },
+      { name: 'Navigation links present',          pass: nav.pass,    detail: nav.count+' links' },
+      { name: 'Footer present',                    pass: footer.pass, detail: footer.linkCount+' links' },
+      { name: 'Campaign page has content',         pass: checks.campaignLoads, detail: checks.campaignLoads ? 'Content loaded' : 'Page appears empty' },
+      { name: 'Fundraiser/team cards visible',     pass: checks.hasFundraiserCards > 0, detail: checks.hasFundraiserCards+' cards' },
+      { name: 'Progress/raised amounts visible',   pass: checks.hasProgress||checks.hasAmounts, detail: checks.hasAmounts?'Raised amount visible':checks.hasProgress?'Progress bar':'Missing' },
+      { name: 'Donate link present',               pass: !!checks.donateHref, detail: checks.donateHref||'NOT found — check campaign setup' },
+      { name: '[Desktop] Header visual integrity', pass: hv.pass, detail: hv.detail },
+      ...mob,
     ];
   },
 };
