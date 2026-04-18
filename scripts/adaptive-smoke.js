@@ -1,9 +1,21 @@
 /**
- * Levi — Universal Adaptive Smoke Test
+ * Levi — Universal Adaptive Smoke Test v2
  * powered by leverage.it
  *
  * Desktop + Mobile visual testing with highlighted screenshot evidence.
  * Auto-detects platform (WordPress, Elementor, Shopify, Wix, Webflow, WooCommerce, etc.)
+ *
+ * NEW in v2:
+ *   - Button & link validity check (all pages)
+ *   - WCAG AA colour contrast check
+ *   - Form accessibility (labels, submit buttons)
+ *   - CTA above-fold detection
+ *   - JavaScript console error capture
+ *   - Internal 404 link checker
+ *   - Page title quality (SEO)
+ *   - Social media links detection
+ *   - Mobile menu open screenshot
+ *   - Multi-page crawl (homepage + up to 2 internal pages)
  *
  * Usage:
  *   FIREBASE_DATABASE_URL=xxx CUSTOM_URL=https://example.com node scripts/adaptive-smoke.js
@@ -14,568 +26,633 @@
  *   SITE_TYPE         Optional platform override
  *   SITE_NAMESPACE    Optional Firebase namespace (auto from URL)
  *   CLIENT_ID         Optional client partition
- *   FIREBASE_DATABASE_URL  Required.
+ *   GITHUB_RUN_ID     Injected by GitHub Actions
  */
 
 'use strict';
-const { chromium } = require('playwright-extra');
-const stealth = require('puppeteer-extra-plugin-stealth');
-chromium.use(stealth());
+const { chromium } = require('playwright');
+const admin = require('firebase-admin');
 
-const FIREBASE_URL = (process.env.FIREBASE_DATABASE_URL || '').replace(/\/$/, '');
-const CUSTOM_URL   = process.env.CUSTOM_URL || '';
-const SITE_NAME    = process.env.SITE_NAME  || '';
-const CLIENT_ID    = process.env.CLIENT_ID  || '';
-const FORCE_TYPE   = process.env.SITE_TYPE  || '';
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
+const CUSTOM_URL       = process.env.CUSTOM_URL       || '';
+const SITE_NAME        = process.env.SITE_NAME        || '';
+const SITE_TYPE        = process.env.SITE_TYPE        || '';
+const SITE_NAMESPACE   = process.env.SITE_NAMESPACE   || '';
+const CLIENT_ID        = process.env.CLIENT_ID        || '';
+const DB_URL           = process.env.FIREBASE_DATABASE_URL || '';
+const GITHUB_RUN_ID    = process.env.GITHUB_RUN_ID    || '';
 
-if (!FIREBASE_URL) { console.error('FIREBASE_DATABASE_URL not set'); process.exit(1); }
-if (!CUSTOM_URL)   { console.error('CUSTOM_URL not set'); process.exit(1); }
+const RESET  = '\x1b[0m';
+const RED    = '\x1b[31m';
+const GREEN  = '\x1b[32m';
+const YELLOW = '\x1b[33m';
+const CYAN   = '\x1b[36m';
 
-const urlObj = new URL(CUSTOM_URL.startsWith('http') ? CUSTOM_URL : 'https://' + CUSTOM_URL);
-const hostname = urlObj.hostname.replace('www.', '');
-const SITE_NAMESPACE = process.env.SITE_NAMESPACE || hostname.replace(/[^a-zA-Z0-9]/g, '_').replace(/__+/g, '_');
-const DISPLAY_NAME   = SITE_NAME || hostname;
-
-const G = '\x1b[32m', R = '\x1b[31m', Y = '\x1b[33m', C = '\x1b[36m', RESET = '\x1b[0m';
-const log = (msg, t = 'info') => console.log((t==='pass'?G:t==='fail'?R:t==='warn'?Y:t==='section'?C:'') + msg + RESET);
+function log(color, msg) { console.log(color + msg + RESET); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PLATFORM DETECTION
 // ─────────────────────────────────────────────────────────────────────────────
 async function detectPlatform(page) {
-  if (FORCE_TYPE) return FORCE_TYPE;
   return await page.evaluate(() => {
     const html = document.documentElement.innerHTML.toLowerCase();
-    const body = document.body?.className?.toLowerCase() || '';
-    // WooCommerce first (before WordPress) — more specific
-    if (html.includes('woocommerce') || document.querySelector('.woocommerce,.wc-block-grid')) return 'woocommerce';
-    // WordPress builders — most specific first
-    if (html.includes('elementor') || document.querySelector('[data-elementor-type],[class*="elementor-"]')) return 'elementor';
-    if (html.includes('et_pb') || html.includes('divi') || body.includes('et-db')) return 'divi';
-    if (document.querySelector('.wp-block-group, .wp-block-cover, .wp-block-columns, [class*="wp-block"]')) return 'gutenberg';
-    // Generic WordPress
-    if (html.includes('wp-content') || html.includes('wp-includes') || html.includes('wordpress')) return 'wordpress';
-    // Platforms
-    if (html.includes('cdn.shopify.com') || window.Shopify) return 'shopify';
-    if (html.includes('squarespace') || html.includes('squarespace-cdn')) return 'squarespace';
-    if (html.includes('wix.com') || html.includes('wixsite') || html.includes('parastorage.com')) return 'wix';
-    if (html.includes('webflow') || html.includes('wf-site-id') || document.querySelector('[data-wf-site]')) return 'webflow';
-    if (window.__NEXT_DATA__ || document.querySelector('#__next')) return 'react';
-    if (window.React || document.querySelector('#root,#app,[data-reactroot]')) return 'react';
+    const meta = document.querySelector('meta[name="generator"]');
+    const generator = meta ? meta.content.toLowerCase() : '';
+
+    if (html.includes('shopify') || generator.includes('shopify')) return 'shopify';
+    if (html.includes('squarespace') || generator.includes('squarespace')) return 'squarespace';
+    if (html.includes('wix.com') || generator.includes('wix')) return 'wix';
+    if (html.includes('webflow') || generator.includes('webflow')) return 'webflow';
+    if (html.includes('elementor') || generator.includes('elementor')) return 'elementor';
+    if (html.includes('divi') || generator.includes('divi')) return 'divi';
+    if (html.includes('woocommerce')) return 'woocommerce';
+    if (html.includes('wp-content') || html.includes('wp-includes') || generator.includes('wordpress')) return 'wordpress';
+    if (html.includes('gutenberg') || html.includes('wp-block')) return 'gutenberg';
+    if (html.includes('next') || html.includes('__next')) return 'nextjs';
+    if (html.includes('react') || html.includes('__reactfiber')) return 'react';
     return 'custom';
-  }).catch(() => 'custom');
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCREENSHOT WITH CANVAS HIGHLIGHTS
-// Draws coloured bounding boxes over elements that have issues
 // ─────────────────────────────────────────────────────────────────────────────
-async function screenshotWithHighlights(page, highlights) {
-  // highlights = [{selector, label, color, reason}]
-  // Draw overlays via canvas injection, take screenshot, clean up
-  if (highlights && highlights.length > 0) {
-    await page.evaluate((hl) => {
-      const canvas = document.createElement('canvas');
-      canvas.id = '__levi_overlay__';
-      canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:99999999';
-      canvas.width  = window.innerWidth;
-      canvas.height = window.innerHeight;
-      document.body.appendChild(canvas);
-      const ctx = canvas.getContext('2d');
+async function screenshotWithHighlights(page, issues) {
+  await page.evaluate((issueList) => {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999999';
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
 
-      hl.forEach(function(h) {
-        const COLORS = { red:'#FF4757', amber:'#FFB300', blue:'#4338CA', green:'#059669' };
-        const color = COLORS[h.color] || COLORS.red;
-        let els = [];
-        if (h.selector) {
-          try { els = [...document.querySelectorAll(h.selector)].filter(el => el.offsetParent !== null).slice(0, 8); }
-          catch(e) {}
-        }
-        if (h.rect) { els = [{ getBoundingClientRect: () => h.rect }]; }
-        els.forEach(function(el) {
-          const r = el.getBoundingClientRect();
-          if (r.width === 0 && r.height === 0) return;
-          // Red/amber box
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 3;
-          ctx.strokeRect(r.left + 1, r.top + 1, r.width - 2, r.height - 2);
-          // Semi-transparent fill
-          ctx.fillStyle = color + '22';
-          ctx.fillRect(r.left + 1, r.top + 1, r.width - 2, r.height - 2);
-          // Label badge
-          const lbl = h.label || 'Issue';
-          ctx.font = 'bold 11px system-ui,sans-serif';
-          const tw = ctx.measureText(lbl).width;
-          const bx = Math.max(0, r.left);
-          const by = Math.max(0, r.top - 22);
-          ctx.fillStyle = color;
-          ctx.fillRect(bx, by, tw + 12, 20);
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillText(lbl, bx + 6, by + 14);
-        });
+    issueList.forEach(issue => {
+      if (!issue.selector) return;
+      const els = document.querySelectorAll(issue.selector);
+      els.forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return;
+        ctx.strokeStyle = issue.color || '#FF0000';
+        ctx.lineWidth   = 3;
+        ctx.strokeRect(r.left + 1, r.top + 1, r.width - 2, r.height - 2);
+        ctx.fillStyle = (issue.color || '#FF0000') + '22';
+        ctx.fillRect(r.left + 1, r.top + 1, r.width - 2, r.height - 2);
       });
-    }, highlights);
-  }
+    });
+  }, issues);
 
-  const ss = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false });
+  const shot = await page.screenshot({ type: 'jpeg', quality: 85, fullPage: false });
 
-  // Remove overlay
   await page.evaluate(() => {
-    const c = document.getElementById('__levi_overlay__');
-    if (c) c.remove();
+    const canvas = document.querySelector('canvas[style*="z-index:999999"]');
+    if (canvas) canvas.remove();
   });
 
-  return ss ? ss.toString('base64') : null;
+  return shot;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UNIVERSAL CHECKS — run on every site
 // ─────────────────────────────────────────────────────────────────────────────
-async function runUniversalChecks(page, url) {
-  const results = [];
-  const push = (name, pass, detail = '', url_ = '') => results.push({ name, pass, detail, url: url_ });
+async function runUniversalChecks(page, uiChecks, url, consoleErrors) {
 
-  const u = await page.evaluate(() => {
-    const brokenImgs = [...document.querySelectorAll('img[src]')].filter(img =>
-      img.complete && img.naturalWidth === 0 && img.src && !img.src.startsWith('data:')
-    ).map(img => img.src.replace(/.*\//, '').slice(0, 40));
+  // 1. HTTP Status / reachable
+  let httpOk = true;
+  try {
+    const resp = await page.request.get(url, { timeout: 10000 });
+    httpOk = resp.status() < 400;
+    uiChecks.push({ name: 'Page Reachable (HTTP)', pass: httpOk, detail: httpOk ? `HTTP ${resp.status()} OK` : `HTTP ${resp.status()} error` });
+  } catch(e) {
+    uiChecks.push({ name: 'Page Reachable (HTTP)', pass: false, detail: 'Could not reach page: ' + e.message });
+  }
 
-    const logo = !!(
-      document.querySelector('img.custom-logo, .site-logo img, header img[alt*="logo" i], img[class*="logo"], img[id*="logo"], .logo img, .navbar-brand img, [class*="brand"] img, header svg')
-    );
+  // 2. HTTPS
+  const isHttps = url.startsWith('https://');
+  uiChecks.push({ name: 'Secure (HTTPS)', pass: isHttps, detail: isHttps ? 'Site served over HTTPS' : 'WARNING: Not HTTPS — browsers show "Not Secure"' });
 
-    const navLinks = [...document.querySelectorAll('nav a, header a, [class*="navbar"] a, [class*="nav"] a')].filter(a => a.href && a.offsetParent);
-    const brokenNavLinks = navLinks.filter(a => !a.href || a.href.endsWith('#') || a.href.endsWith('#0'));
-
-    const footer = !!(document.querySelector('footer, .site-footer, #footer, [class*="footer"]'));
-    const footerLinks = document.querySelectorAll('footer a, .site-footer a').length;
-
-    const h1Count = document.querySelectorAll('h1').length;
-    const h1Text = document.querySelector('h1')?.innerText?.trim().slice(0, 60) || '';
-    const hasMetaDesc = !!document.querySelector('meta[name="description"][content]');
-    const hasMeta = !!document.querySelector('meta[name="viewport"]');
-
-    const hasButtons = document.querySelectorAll('button:not([disabled]), a.button, a.btn, [class*="btn-"], [class*="button-"]').length;
-
-    // Contrast/visibility — look for white-on-white or invisible text in nav
-    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
-
-    return {
-      title: document.title,
-      hasContent: (document.body?.innerText?.trim().length || 0) > 100,
-      brokenImgs, logo, navLinks: navLinks.length, brokenNavLinks: brokenNavLinks.length,
-      footer, footerLinks, h1Count, h1Text, hasMetaDesc, hasMeta,
-      hasButtons, isHttps: window.location.protocol === 'https:',
-      bodyBg,
-    };
+  // 3. Page title quality
+  const title = await page.title();
+  const titleOk = title && title.length >= 10 && title.length <= 70;
+  uiChecks.push({
+    name: 'Page Title Quality',
+    pass: !!titleOk,
+    detail: !title ? 'No title tag found'
+      : title.length < 10 ? `Title too short: "${title}" (${title.length} chars)`
+      : title.length > 70 ? `Title too long: ${title.length} chars — trim for SEO`
+      : `"${title}" (${title.length} chars)`
   });
 
-  push('Page loads with content', u.hasContent, u.title || 'No title');
-  push('Secure (HTTPS)', u.isHttps, u.isHttps ? 'Secure connection' : 'WARNING: Not HTTPS — browsers show "Not Secure"');
-  push('Logo visible in header', u.logo, u.logo ? 'Logo found' : 'No logo detected in header — check selector');
-  push('No broken images', u.brokenImgs.length === 0,
-    u.brokenImgs.length === 0 ? 'All images load correctly' : 'Broken: ' + u.brokenImgs.slice(0, 3).join(', '));
-  push('Navigation links present', u.navLinks >= 2, u.navLinks + ' nav links found');
-  if (u.brokenNavLinks > 0) {
-    push('No broken nav links (#)', false, u.brokenNavLinks + ' nav links point to # (no destination)');
+  // 4. Meta description
+  const metaDesc = await page.$eval('meta[name="description"]', el => el.content).catch(() => '');
+  const metaOk = metaDesc && metaDesc.length >= 50 && metaDesc.length <= 160;
+  uiChecks.push({
+    name: 'Meta Description',
+    pass: !!metaOk,
+    detail: !metaDesc ? 'Missing meta description'
+      : metaDesc.length < 50 ? `Too short (${metaDesc.length} chars, min 50)`
+      : metaDesc.length > 160 ? `Too long (${metaDesc.length} chars, max 160)`
+      : `OK (${metaDesc.length} chars)`
+  });
+
+  // 5. Viewport meta
+  const viewport = await page.$('meta[name="viewport"]');
+  uiChecks.push({ name: 'Viewport Meta Tag', pass: !!viewport, detail: viewport ? 'Viewport meta tag present' : 'Missing viewport meta — site may not scale on mobile' });
+
+  // 6. H1 heading
+  const h1s = await page.$$eval('h1', els => els.map(e => e.innerText.trim()).filter(t => t));
+  const h1Ok = h1s.length === 1;
+  uiChecks.push({
+    name: 'H1 Heading',
+    pass: h1Ok,
+    detail: h1s.length === 0 ? 'No H1 heading found — important for SEO'
+      : h1s.length > 1 ? `${h1s.length} H1s found — should have exactly one`
+      : `"${h1s[0].substring(0, 60)}"`
+  });
+
+  // 7. Logo in header
+  const hasLogo = await page.evaluate(() => {
+    const header = document.querySelector('header, .header, #header, nav, .navbar');
+    if (!header) return false;
+    return !!(header.querySelector('img, svg, .logo, [class*="logo"], [class*="brand"]'));
+  });
+  uiChecks.push({ name: 'Logo in Header', pass: hasLogo, detail: hasLogo ? 'Logo element found in header/nav' : 'No logo found in header area' });
+
+  // 8. Navigation links
+  const navLinks = await page.evaluate(() => {
+    const nav = document.querySelector('nav, header, .navbar, .navigation, .nav, #nav');
+    if (!nav) return 0;
+    return nav.querySelectorAll('a[href]').length;
+  });
+  uiChecks.push({ name: 'Navigation Links', pass: navLinks >= 2, detail: navLinks >= 2 ? `${navLinks} nav link(s) found` : `Only ${navLinks} nav link(s) — navigation may be broken` });
+
+  // 9. Footer present
+  const hasFooter = await page.$('footer, .footer, #footer, [class*="footer"]').then(el => !!el);
+  uiChecks.push({ name: 'Footer Present', pass: hasFooter, detail: hasFooter ? 'Footer element found' : 'No footer detected on page' });
+
+  // 10. Broken images
+  const brokenImgs = await page.evaluate(() => {
+    return [...document.querySelectorAll('img')]
+      .filter(img => img.complete && img.naturalWidth === 0 && img.src && !img.src.includes('data:'))
+      .map(img => img.src.split('/').pop().substring(0, 40));
+  });
+  uiChecks.push({
+    name: 'No Broken Images',
+    pass: brokenImgs.length === 0,
+    detail: brokenImgs.length === 0 ? 'All images loaded successfully' : `${brokenImgs.length} broken image(s): ${brokenImgs.slice(0,3).join(', ')}`
+  });
+
+  // 11. Image alt text
+  const altResult = await page.evaluate(() => {
+    const imgs = [...document.querySelectorAll('img')].filter(i => i.naturalWidth > 0 && i.offsetParent !== null);
+    const missing = imgs.filter(i => !i.alt);
+    return { total: imgs.length, missing: missing.length, srcs: missing.slice(0,3).map(i => i.src.split('/').pop().substring(0,40)) };
+  });
+  uiChecks.push({
+    name: 'Images Have Alt Text',
+    pass: altResult.missing === 0,
+    detail: altResult.missing === 0 ? `All ${altResult.total} image(s) have alt text` : `${altResult.missing}/${altResult.total} image(s) missing alt text: ${altResult.srcs.join(', ')}`
+  });
+
+  // 12. Button & Link Validity
+  const linkResult = await page.evaluate(() => {
+    const broken = [];
+    const valid = [];
+    [...document.querySelectorAll('a')].forEach(el => {
+      const href = el.getAttribute('href');
+      const text = (el.innerText || el.textContent || '').trim().substring(0, 40);
+      if (!text || el.offsetParent === null) return;
+      if (!href || href === '#' || href === '' || href.startsWith('javascript:')) {
+        broken.push(text);
+      } else {
+        valid.push(href);
+      }
+    });
+    return { broken: [...new Set(broken)], validCount: valid.length };
+  });
+  uiChecks.push({
+    name: 'Button & Link Validity',
+    pass: linkResult.broken.length === 0,
+    detail: linkResult.broken.length === 0
+      ? `All ${linkResult.validCount} link(s) have valid hrefs`
+      : `${linkResult.broken.length} link(s) with empty/invalid href: ${linkResult.broken.slice(0,3).map(t => '"'+t+'"').join(', ')}`
+  });
+
+  // 13. CTA above fold
+  const ctaResult = await page.evaluate(() => {
+    const vh = window.innerHeight;
+    const ctas = [...document.querySelectorAll('a[class*="btn"], a[class*="button"], a[class*="cta"], button[class*="btn"], .wp-block-button a, .elementor-button, [class*="cta-button"]')];
+    const above = ctas.filter(el => { const r = el.getBoundingClientRect(); return r.top < vh && r.bottom > 0 && r.width > 0; });
+    return { total: ctas.length, above: above.length, text: above[0] ? (above[0].innerText||'').trim().substring(0,40) : null };
+  });
+  if (ctaResult.total > 0) {
+    uiChecks.push({
+      name: 'CTA Visible Above Fold',
+      pass: ctaResult.above > 0,
+      detail: ctaResult.above > 0 ? `${ctaResult.above} CTA(s) above fold — "${ctaResult.text}"` : `${ctaResult.total} CTA(s) found but none visible above fold`
+    });
   }
-  push('Footer present', u.footer, u.footer ? u.footerLinks + ' links in footer' : 'No footer element found');
-  push('Page has H1 heading', u.h1Count > 0,
-    u.h1Count > 0 ? '"' + u.h1Text + '"' : 'Missing H1 — bad for SEO');
-  if (u.h1Count > 1) {
-    push('Only one H1 per page', false, u.h1Count + ' H1 tags found — should be exactly one');
+
+  // 14. Colour contrast (sample check)
+  const contrastIssues = await page.evaluate(() => {
+    function luminance(r, g, b) {
+      return [r,g,b].reduce((sum, c, i) => {
+        c = c/255;
+        c = c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4);
+        return sum + c * [0.2126, 0.7152, 0.0722][i];
+      }, 0);
+    }
+    function contrast(l1, l2) { return (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05); }
+    function parseRGB(s) { const m = s.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/); return m ? [+m[1],+m[2],+m[3]] : null; }
+
+    const issues = [];
+    [...document.querySelectorAll('p, h1, h2, h3, a, button, label')].slice(0, 60).forEach(el => {
+      if (!el.offsetParent || !(el.innerText||'').trim()) return;
+      const st = window.getComputedStyle(el);
+      const fg = parseRGB(st.color);
+      const bg = parseRGB(st.backgroundColor);
+      if (!fg || !bg || st.backgroundColor === 'rgba(0, 0, 0, 0)') return;
+      const ratio = contrast(luminance(...fg), luminance(...bg));
+      if (ratio < 4.5) issues.push({ text: (el.innerText||'').trim().substring(0,30), ratio: ratio.toFixed(1) });
+    });
+    return [...new Map(issues.map(i=>[i.text,i])).values()].slice(0,4);
+  });
+  uiChecks.push({
+    name: 'Colour Contrast (WCAG AA)',
+    pass: contrastIssues.length === 0,
+    detail: contrastIssues.length === 0 ? 'Text contrast meets WCAG AA (4.5:1)' : `${contrastIssues.length} element(s) fail contrast: ${contrastIssues.map(i=>'"'+i.text+'" ('+i.ratio+':1)').join('; ')}`
+  });
+
+  // 15. Form accessibility
+  const formResult = await page.evaluate(() => {
+    const forms = [...document.querySelectorAll('form')];
+    if (!forms.length) return { count: 0, issues: [] };
+    const issues = [];
+    forms.forEach((form, fi) => {
+      [...form.querySelectorAll('input:not([type=hidden]), textarea, select')].forEach(inp => {
+        const hasLabel = (inp.id && document.querySelector('label[for="'+inp.id+'"]')) || inp.getAttribute('aria-label') || inp.getAttribute('placeholder');
+        if (!hasLabel) issues.push('Form '+(fi+1)+': unlabelled '+inp.tagName.toLowerCase());
+      });
+      if (!form.querySelector('[type=submit], button[type=submit], button:not([type])')) {
+        issues.push('Form '+(fi+1)+': no submit button');
+      }
+    });
+    return { count: forms.length, issues };
+  });
+  if (formResult.count > 0) {
+    uiChecks.push({
+      name: 'Form Accessibility',
+      pass: formResult.issues.length === 0,
+      detail: formResult.issues.length === 0 ? `${formResult.count} form(s) — all inputs labelled` : formResult.issues.slice(0,3).join('; ')
+    });
   }
-  push('Meta description present', u.hasMetaDesc, u.hasMetaDesc ? 'Found' : 'Missing — important for SEO and link previews');
-  push('Viewport meta tag', u.hasMeta, u.hasMeta ? 'Mobile-ready' : 'Missing — page will not scale on mobile');
-  if (u.hasButtons) push('Interactive elements present', true, u.hasButtons + ' buttons/CTAs found');
 
-  // Take desktop screenshot with highlights for issues
-  const hlDesktop = [];
-  if (!u.logo)                hlDesktop.push({ selector: 'header', label: 'Missing logo', color: 'red' });
-  if (u.brokenImgs.length > 0) hlDesktop.push({ selector: 'img[src]', label: 'Broken image', color: 'red' });
-  if (u.brokenNavLinks > 0)   hlDesktop.push({ selector: 'nav a[href="#"], header a[href="#"]', label: 'Broken nav link', color: 'amber' });
+  // 16. JavaScript console errors
+  const filteredErrors = (consoleErrors || []).filter(e => !e.includes('favicon') && !e.includes('analytics') && !e.includes('gtag') && !e.includes('fbq'));
+  uiChecks.push({
+    name: 'No JavaScript Errors',
+    pass: filteredErrors.length === 0,
+    detail: filteredErrors.length === 0 ? 'No JS errors on page load' : `${filteredErrors.length} JS error(s): ${filteredErrors.slice(0,2).join(' | ')}`
+  });
 
-  const ssDesktop = await screenshotWithHighlights(page, hlDesktop);
-  if (ssDesktop) results.push({ name: '[Screenshot] Desktop view', screenshot: true, label: 'Desktop screenshot', url, pass: true, screenshot_data: ssDesktop });
+  // 17. Social media links
+  const socials = await page.evaluate(() => {
+    return [...new Set([...document.querySelectorAll('a[href]')]
+      .map(a => { const m = a.href.match(/(?:facebook|instagram|twitter|linkedin|youtube|tiktok)\.com/); return m ? m[0].split('.')[0] : null; })
+      .filter(Boolean))];
+  });
+  uiChecks.push({
+    name: 'Social Media Links',
+    pass: socials.length > 0,
+    detail: socials.length > 0 ? `Found: ${socials.join(', ')}` : 'No social media links found in page'
+  });
 
-  return results;
+  // 18. Page load — render-blocking scripts
+  const blockingScripts = await page.evaluate(() => {
+    return [...document.querySelectorAll('script[src]:not([async]):not([defer])')].length;
+  });
+  uiChecks.push({
+    name: 'Render-Blocking Scripts',
+    pass: blockingScripts <= 3,
+    detail: blockingScripts <= 3 ? `${blockingScripts} blocking script(s) — acceptable` : `${blockingScripts} render-blocking scripts — consider async/defer for faster load`
+  });
+
+  // 19. Internal link 404 check
+  const internalLinks = await page.evaluate((base) => {
+    try {
+      const origin = new URL(base).origin;
+      return [...new Set([...document.querySelectorAll('a[href]')]
+        .map(a => a.href)
+        .filter(h => h.startsWith(origin) && !h.includes('#') && !h.includes('mailto:') && !h.includes('tel:') && h !== base && h !== base + '/')
+      )].slice(0, 8);
+    } catch(e) { return []; }
+  }, url);
+
+  const broken404 = [];
+  for (const link of internalLinks) {
+    try {
+      const resp = await page.request.get(link, { timeout: 6000 });
+      if (resp.status() === 404 || resp.status() === 410) {
+        broken404.push(link.replace(new URL(url).origin, '').substring(0, 60));
+      }
+    } catch(e) { /* timeout, skip */ }
+  }
+  uiChecks.push({
+    name: 'Internal Links (No 404s)',
+    pass: broken404.length === 0,
+    detail: broken404.length === 0 ? `All ${internalLinks.length} internal link(s) return valid responses` : `${broken404.length} broken link(s): ${broken404.slice(0,3).join(', ')}`
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PLATFORM-SPECIFIC CHECKS
 // ─────────────────────────────────────────────────────────────────────────────
-async function runPlatformChecks(page, platform) {
-  const results = [];
-  const push = (name, pass, detail = '') => results.push({ name, pass, detail });
-
+async function runPlatformChecks(page, platform, uiChecks) {
   if (['wordpress', 'elementor', 'divi', 'gutenberg', 'woocommerce'].includes(platform)) {
-    const wp = await page.evaluate(() => ({
-      hasAdminBar:  !!document.querySelector('#wpadminbar'),
-      hasCaching:   !!(document.querySelector('meta[name*="cache"]') || window.__CLOUDFLARE_WORKERS),
-      hasAkismet:   !!document.querySelector('[class*="akismet"]'),
-      missingAlt:   [...document.querySelectorAll('img:not([alt])')].filter(i => i.offsetParent !== null).length,
-      // Elementor specific
-      isElementor:  !!document.querySelector('[data-elementor-type]'),
-      elementorBroken: document.querySelectorAll('.elementor-error, .elementor-alert-danger').length,
-      // Gutenberg check
-      wpBlocks: document.querySelectorAll('[class*="wp-block"]').length,
-      // WooCommerce
-      isWoo: !!(document.querySelector('.woocommerce') || window.woocommerce_params),
-      wooCart: !!document.querySelector('.cart-contents, .woocommerce-cart, a[href*="cart"]'),
-      wooShop: !!document.querySelector('.woocommerce-products-header, .products'),
-    }));
-    if (wp.missingAlt > 0) push('[WordPress] Images missing alt text', false, wp.missingAlt + ' images without alt — accessibility and SEO issue');
-    if (wp.elementorBroken > 0) push('[Elementor] No broken Elementor widgets', false, wp.elementorBroken + ' Elementor error elements detected');
-    if (wp.isElementor) push('[Elementor] Elementor page builder detected', true, 'Elementor rendering correctly');
-    if (wp.isWoo) {
-      push('[WooCommerce] Shop renders correctly', wp.wooShop || wp.wooCart, wp.wooShop ? 'Product grid found' : (wp.wooCart ? 'Cart found' : 'No shop or cart elements'));
+    const elementorErrors = await page.evaluate(() => {
+      return [...document.querySelectorAll('.elementor-error, .elementor-widget-empty')].length;
+    });
+    if (platform === 'elementor') {
+      uiChecks.push({ name: 'Elementor Errors', pass: elementorErrors === 0, detail: elementorErrors === 0 ? 'No Elementor widget errors' : `${elementorErrors} Elementor error(s) visible` });
+    }
+
+    const hasWpBlocks = await page.$('.wp-site-blocks, .wp-block, .entry-content, .site-content').then(el => !!el);
+    uiChecks.push({ name: 'WordPress Content Renders', pass: hasWpBlocks, detail: hasWpBlocks ? 'WordPress content blocks rendering' : 'WordPress content area not detected' });
+
+    if (platform === 'woocommerce') {
+      const hasShop = await page.$('.woocommerce, .products, .wc-block-grid').then(el => !!el);
+      uiChecks.push({ name: 'WooCommerce Shop Renders', pass: hasShop, detail: hasShop ? 'WooCommerce product grid visible' : 'WooCommerce shop not detected' });
     }
   }
 
   if (platform === 'shopify') {
-    const sh = await page.evaluate(() => ({
-      hasProducts:  document.querySelectorAll('.product, .product-card, [class*="product__"]').length,
-      hasCart:      !!document.querySelector('[class*="cart"], [data-cart]'),
-      hasShopNav:   !!document.querySelector('.site-nav, .main-nav, [class*="site-header"]'),
-    }));
-    push('[Shopify] Products visible', sh.hasProducts > 0, sh.hasProducts + ' products found');
-    push('[Shopify] Cart accessible', sh.hasCart, sh.hasCart ? 'Cart element found' : 'No cart element — check theme');
-  }
-
-  if (platform === 'wix') {
-    const wx = await page.evaluate(() => ({
-      hasWixNav:   !!document.querySelector('[id*="SITE_HEADER"],[class*="wix-site-header"]'),
-      noIframe:    document.querySelectorAll('iframe[src*="wix"]').length === 0,
-    }));
-    push('[Wix] Site header loads', wx.hasWixNav, wx.hasWixNav ? 'Header found' : 'Wix header not detected');
+    const hasProducts = await page.$('.product-list, .product-grid, .collection-list, [class*="product"]').then(el => !!el);
+    uiChecks.push({ name: 'Shopify Products Visible', pass: hasProducts, detail: hasProducts ? 'Product listings detected' : 'No product listings found' });
+    const hasCart = await page.$('a[href*="/cart"], .cart-link, .header__icon--cart').then(el => !!el);
+    uiChecks.push({ name: 'Cart Accessible', pass: hasCart, detail: hasCart ? 'Cart link present' : 'No cart link found in navigation' });
   }
 
   if (platform === 'webflow') {
-    const wf = await page.evaluate(() => ({
-      hasNav:    !!document.querySelector('[class*="w-nav"], .navbar, [class*="navbar"]'),
-      hasCMS:    !!document.querySelector('[class*="w-dyn"]'),
-      brokenCMS: document.querySelectorAll('[class*="w-dyn-empty"]').length,
-    }));
-    push('[Webflow] Navigation renders', wf.hasNav, wf.hasNav ? 'Webflow nav found' : 'Nav not detected');
-    if (wf.hasCMS && wf.brokenCMS > 0) push('[Webflow] CMS collections populated', false, wf.brokenCMS + ' empty CMS collection(s) — check data source');
+    const navRenders = await page.$('nav, .w-nav, .navbar').then(el => !!el);
+    uiChecks.push({ name: 'Webflow Nav Renders', pass: navRenders, detail: navRenders ? 'Webflow navigation present' : 'Navigation not detected' });
   }
 
-  if (platform === 'react') {
-    const rx = await page.evaluate(() => ({
-      hasRoot:   !!(document.querySelector('#root, #__next, #app') || window.__NEXT_DATA__),
-      isEmpty:   (document.querySelector('#root, #__next')?.children?.length || 1) === 0,
-    }));
-    push('[React] App hydrates correctly', !rx.isEmpty, rx.isEmpty ? 'React root is empty — likely a hydration error' : 'App rendered');
+  if (platform === 'wix') {
+    const headerLoads = await page.$('#SITE_HEADER, [id*="header"], .site-header').then(el => !!el);
+    uiChecks.push({ name: 'Wix Header Loads', pass: headerLoads, detail: headerLoads ? 'Wix site header loaded' : 'Wix header not detected' });
   }
 
-  return results;
+  if (['react', 'nextjs'].includes(platform)) {
+    const appHydrated = await page.evaluate(() => !!document.querySelector('#__next, #root, [data-reactroot]'));
+    uiChecks.push({ name: 'React App Hydrated', pass: appHydrated, detail: appHydrated ? 'React/Next.js app mounted correctly' : 'React app root not found — may not have hydrated' });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MOBILE VISUAL TESTING
-// Full visual audit at 390px — highlights overlaps, missing logo, overflow, etc.
+// MOBILE VISUAL TESTING + MENU SCREENSHOT
 // ─────────────────────────────────────────────────────────────────────────────
-async function runMobileVisualTest(browser, url) {
-  const results = [];
-  const push = (name, pass, detail = '') => results.push({ name, pass, detail });
-  let ctx;
+async function runMobileChecks(browser, url, uiChecks, evidence) {
+  const mobilePage = await browser.newPage();
+  await mobilePage.setViewportSize({ width: 390, height: 844 });
+
+  // Capture mobile console errors
+  const mobileErrors = [];
+  mobilePage.on('console', msg => { if (msg.type() === 'error') mobileErrors.push(msg.text()); });
 
   try {
-    ctx = await browser.newContext({
-      viewport:  { width: 390, height: 844 },
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-      deviceScaleFactor: 3,
-      isMobile:  true,
-      hasTouch:  true,
+    await mobilePage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await mobilePage.waitForTimeout(2000);
+
+    // Mobile overflow check
+    const overflowData = await mobilePage.evaluate(() => {
+      const overflowing = [...document.querySelectorAll('*')].filter(el => {
+        const rect = el.getBoundingClientRect();
+        return rect.right > window.innerWidth + 5 && rect.width > 0 && el.offsetParent !== null;
+      });
+      return { count: overflowing.length, tags: overflowing.slice(0,3).map(e => e.tagName + '.' + (e.className||'').split(' ')[0]) };
     });
-    const page = await ctx.newPage();
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
-    await page.waitForTimeout(2500);
+    uiChecks.push({
+      name: '[Mobile] No Horizontal Overflow',
+      pass: overflowData.count === 0,
+      detail: overflowData.count === 0 ? 'No horizontal overflow on mobile' : `${overflowData.count} element(s) overflow screen width: ${overflowData.tags.join(', ')}`
+    });
 
-    // Gather mobile issues with element positions for highlighting
-    const issues = await page.evaluate(() => {
-      const vw = window.innerWidth; // 390
-      const found = [];
+    // Tap targets
+    const tapTargets = await mobilePage.evaluate(() => {
+      return [...document.querySelectorAll('a, button, [role=button], input[type=submit]')]
+        .filter(el => el.offsetParent !== null)
+        .filter(el => { const r = el.getBoundingClientRect(); return r.height > 0 && r.width > 0 && (r.height < 36 || r.width < 36); })
+        .length;
+    });
+    uiChecks.push({
+      name: '[Mobile] Tap Targets Minimum Size',
+      pass: tapTargets === 0,
+      detail: tapTargets === 0 ? 'All tap targets meet 36px minimum' : `${tapTargets} button(s)/link(s) below 36px — hard to tap on touchscreen`
+    });
 
-      // 1. Horizontal overflow — elements wider than viewport
-      const allEls = [...document.querySelectorAll('*')].filter(el => el.offsetParent !== null);
-      const overflowEls = allEls.filter(el => {
-        const r = el.getBoundingClientRect();
-        return r.right > vw + 5 && r.width < vw * 3; // real overflow, not tiny
-      }).slice(0, 5);
-      overflowEls.forEach(el => {
-        const r = el.getBoundingClientRect();
-        found.push({ type: 'overflow', rect: { left: r.left, top: r.top, width: r.width, height: r.height, right: r.right, bottom: r.bottom }, tag: el.tagName, cls: el.className?.slice(0, 40) });
-      });
+    // Text size
+    const smallText = await mobilePage.evaluate(() => {
+      return [...document.querySelectorAll('p, li, span, a, td')].filter(el => {
+        const sz = parseFloat(window.getComputedStyle(el).fontSize);
+        return sz < 11 && el.offsetParent !== null && (el.innerText||'').trim().length > 3;
+      }).length;
+    });
+    uiChecks.push({
+      name: '[Mobile] Text Size Readable',
+      pass: smallText === 0,
+      detail: smallText === 0 ? 'All text is 11px or larger on mobile' : `${smallText} element(s) with text below 11px`
+    });
 
-      // 2. Logo at mobile width
-      const logoEl = document.querySelector('img.custom-logo, .site-logo img, header img[alt*="logo" i], img[class*="logo"], .logo img, .navbar-brand img, header img');
-      const logoR = logoEl?.getBoundingClientRect();
-      const logoVisible = logoEl && logoR && logoR.width > 0 && logoR.top < 200 && logoR.top > -10;
-      if (!logoVisible) found.push({ type: 'missing_logo', rect: null });
-
-      // 3. Text too small to read (< 11px)
-      const tinyText = allEls.filter(el => {
-        const style = window.getComputedStyle(el);
-        const fs = parseFloat(style.fontSize);
-        return fs > 0 && fs < 11 && el.innerText?.trim().length > 3;
-      }).slice(0, 3);
-      tinyText.forEach(el => {
-        const r = el.getBoundingClientRect();
-        found.push({ type: 'tiny_text', rect: { left: r.left, top: r.top, width: r.width, height: r.height }, fs: window.getComputedStyle(el).fontSize });
-      });
-
-      // 4. Overlapping elements — check nav items on top of each other
-      const navItems = [...document.querySelectorAll('nav a, .menu a, header a')].filter(el => el.offsetParent !== null).slice(0, 12);
-      for (let i = 0; i < navItems.length; i++) {
-        for (let j = i + 1; j < navItems.length; j++) {
-          const a = navItems[i].getBoundingClientRect();
-          const b = navItems[j].getBoundingClientRect();
-          const overlaps = !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
-          if (overlaps && a.width > 0 && b.width > 0) {
-            found.push({ type: 'overlap', rect: { left: Math.min(a.left,b.left), top: Math.min(a.top,b.top), width: Math.max(a.right,b.right)-Math.min(a.left,b.left), height: Math.max(a.bottom,b.bottom)-Math.min(a.top,b.top) } });
-            break;
-          }
-        }
+    // Nav overlap
+    const navOverlap = await mobilePage.evaluate(() => {
+      const nav = document.querySelector('nav, header, .navbar, .navigation');
+      if (!nav) return 0;
+      const items = [...nav.querySelectorAll('a, li')].filter(el => el.offsetParent !== null);
+      let overlaps = 0;
+      for (let i = 0; i < items.length - 1; i++) {
+        const r1 = items[i].getBoundingClientRect();
+        const r2 = items[i+1].getBoundingClientRect();
+        if (r1.right > r2.left + 5 && Math.abs(r1.top - r2.top) < 10) overlaps++;
       }
-
-      // 5. Tap target size — buttons < 44px
-      const smallBtns = [...document.querySelectorAll('button, a, input[type="submit"]')].filter(el => {
-        if (!el.offsetParent) return false;
-        const r = el.getBoundingClientRect();
-        return r.width > 5 && (r.height < 36 || r.width < 36);
-      }).slice(0, 5);
-      smallBtns.forEach(el => {
-        const r = el.getBoundingClientRect();
-        found.push({ type: 'small_tap', rect: { left: r.left, top: r.top, width: r.width, height: r.height }, text: el.innerText?.trim().slice(0, 20) });
-      });
-
-      // 6. Horizontal scroll bar visible
-      const hasHorizScroll = document.documentElement.scrollWidth > vw + 5;
-
-      return { issues: found, hasHorizScroll, logoVisible, vw, overflowCount: overflowEls.length };
+      return overlaps;
+    });
+    uiChecks.push({
+      name: '[Mobile] No Overlapping Nav Elements',
+      pass: navOverlap === 0,
+      detail: navOverlap === 0 ? 'Navigation renders correctly on mobile' : `${navOverlap} nav item overlap(s) — menu may be broken on mobile`
     });
 
-    // Build highlights from issues
-    const highlights = [];
-    issues.issues.forEach(iss => {
-      if (iss.type === 'overflow')     highlights.push({ rect: iss.rect, label: 'Overflows viewport', color: 'red' });
-      if (iss.type === 'tiny_text')    highlights.push({ rect: iss.rect, label: 'Text too small ('+iss.fs+')', color: 'amber' });
-      if (iss.type === 'overlap')      highlights.push({ rect: iss.rect, label: 'Elements overlap', color: 'red' });
-      if (iss.type === 'small_tap')    highlights.push({ rect: iss.rect, label: 'Tap target too small', color: 'amber' });
+    // Mobile annotated screenshot
+    const mobileHighlights = [];
+    if (overflowData.count > 0) {
+      mobileHighlights.push({ selector: '*', color: '#FF0000', label: 'overflow' });
+    }
+    const mobileShot = await mobilePage.screenshot({ type: 'jpeg', quality: 85, fullPage: false });
+    evidence.push({
+      type: 'mobile-annotated',
+      screenshot: mobileShot.toString('base64'),
+      highlightCount: overflowData.count + tapTargets + smallText + navOverlap
     });
-    if (!issues.logoVisible) highlights.push({ selector: 'header', label: 'Logo missing at mobile', color: 'red' });
 
-    // Take mobile screenshot WITH visual highlights
-    const ssMobile = await screenshotWithHighlights(page, highlights);
+    // ── MOBILE MENU OPEN SCREENSHOT ──────────────────────────────────────────
+    try {
+      const hamburger = await mobilePage.$([
+        '[class*="hamburger"]',
+        '[class*="menu-toggle"]',
+        '[class*="nav-toggle"]',
+        '[class*="mobile-menu-button"]',
+        '[aria-label*="menu" i]',
+        '[aria-label*="navigation" i]',
+        '.menu-icon',
+        '.burger',
+        '.navicon',
+        'button[class*="mobile"]',
+        'button[class*="nav"]'
+      ].join(', '));
 
-    // Add issue checks to results
-    push('[Mobile] No horizontal overflow', issues.overflowCount === 0,
-      issues.overflowCount === 0 ? 'All elements fit within 390px' : 'BUG: ' + issues.overflowCount + ' element(s) overflow viewport — causes horizontal scrollbar');
-    push('[Mobile] No horizontal scroll', !issues.hasHorizScroll,
-      issues.hasHorizScroll ? 'BUG: Page is wider than viewport — users have to scroll sideways' : 'Correct width');
-    push('[Mobile] Logo visible in header', issues.logoVisible,
-      issues.logoVisible ? 'Logo present at 390px' : 'Logo not found at mobile width — check responsive CSS');
-
-    const overlapIssues = issues.issues.filter(i => i.type === 'overlap');
-    if (overlapIssues.length > 0) {
-      push('[Mobile] No overlapping nav elements', false, overlapIssues.length + ' nav item overlap(s) detected — menu may be broken on mobile');
-    } else {
-      push('[Mobile] Navigation items do not overlap', true, 'All nav items correctly spaced');
+      if (hamburger) {
+        await hamburger.click();
+        await mobilePage.waitForTimeout(700);
+        const menuShot = await mobilePage.screenshot({ type: 'jpeg', quality: 85, fullPage: false });
+        evidence.push({
+          type: 'mobile-menu',
+          screenshot: menuShot.toString('base64'),
+          label: 'Mobile menu — open state'
+        });
+        log(GREEN, '  ✓ Mobile menu screenshot captured');
+      } else {
+        log(YELLOW, '  ⚠ No hamburger menu found — may be desktop-only nav');
+      }
+    } catch(e) {
+      log(YELLOW, '  ⚠ Mobile menu screenshot failed: ' + e.message);
     }
 
-    const tinyTextIssues = issues.issues.filter(i => i.type === 'tiny_text');
-    if (tinyTextIssues.length > 0) {
-      push('[Mobile] Text readable size', false, tinyTextIssues.length + ' element(s) with text smaller than 11px — may be unreadable on mobile');
-    } else {
-      push('[Mobile] Text readable size', true, 'All text ≥ 11px');
-    }
-
-    const smallTapIssues = issues.issues.filter(i => i.type === 'small_tap');
-    if (smallTapIssues.length > 0) {
-      push('[Mobile] Tap targets minimum size', false, smallTapIssues.length + ' button(s)/link(s) below 36px — hard to tap on touchscreen');
-    } else {
-      push('[Mobile] Tap targets minimum size', true, 'Buttons/links all tap-friendly');
-    }
-
-    // Attach the annotated screenshot to results
-    if (ssMobile) {
-      results.push({
-        name: '[Screenshot] Mobile view (390px) — highlighted issues',
-        screenshot: true,
-        label: 'Mobile screenshot — ' + highlights.length + ' issue' + (highlights.length !== 1 ? 's' : '') + ' highlighted',
-        url,
-        pass: highlights.length === 0,
-        screenshot_data: ssMobile,
-        isMobile: true,
-        highlightCount: highlights.length,
-      });
-    }
-
-    await ctx.close();
-  } catch (e) {
-    push('[Mobile] Mobile check completed', false, e.message.slice(0, 80));
-    if (ctx) await ctx.close().catch(() => {});
+  } finally {
+    await mobilePage.close();
   }
-
-  return results;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FIREBASE
 // ─────────────────────────────────────────────────────────────────────────────
-async function saveToFirebase(path, data) {
-  // Strip base64 screenshot data before saving to keep Firebase lean
-  // Store screenshots separately or inline — depends on size
-  const res = await fetch(`${FIREBASE_URL}/${path}.json`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(`Firebase ${res.status}: ${await res.text()}`);
+function initFirebase() {
+  if (!DB_URL) { log(YELLOW, 'No FIREBASE_DATABASE_URL — results will not be saved'); return null; }
+  try {
+    admin.initializeApp({ credential: admin.credential.applicationDefault(), databaseURL: DB_URL });
+    return admin.database();
+  } catch(e) {
+    try {
+      // Fallback: init without credentials (public DB rules)
+      const app = admin.initializeApp({ databaseURL: DB_URL }, 'levi');
+      return admin.database(app);
+    } catch(e2) {
+      log(RED, 'Firebase init failed: ' + e2.message);
+      return null;
+    }
+  }
+}
+
+async function saveResults(db, namespace, results) {
+  if (!db) return;
+  const date = new Date().toISOString().slice(0, 10);
+  const ref  = db.ref(`customResults/${date}/${namespace}`);
+  await ref.set(results);
+  await db.ref(`customLatest/${namespace}`).set(date);
+  log(GREEN, `  ✓ Saved to Firebase: customResults/${date}/${namespace}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN
 // ─────────────────────────────────────────────────────────────────────────────
 (async () => {
-  const today     = new Date().toISOString().slice(0, 10);
-  const startTime = Date.now();
+  if (!CUSTOM_URL) { log(RED, 'ERROR: CUSTOM_URL env var is required'); process.exit(1); }
 
-  log(`\n${'═'.repeat(56)}`, 'section');
-  log(`  Levi — Universal Site Audit`, 'section');
-  log(`  powered by leverage.it`, 'section');
-  log(`  URL: ${CUSTOM_URL}`, 'section');
-  log(`${'═'.repeat(56)}`, 'section');
+  const url       = CUSTOM_URL.startsWith('http') ? CUSTOM_URL : 'https://' + CUSTOM_URL;
+  const siteName  = SITE_NAME || url.replace(/https?:\/\/(www\.)?/, '').split('/')[0];
+  const namespace = SITE_NAMESPACE || url.replace(/https?:\/\//, '').replace(/[^a-zA-Z0-9]/g, '_').replace(/__+/g, '_').slice(0, 40);
 
-  const browser = await chromium.launch({ headless: true });
-  const result  = {
-    id: SITE_NAMESPACE, name: DISPLAY_NAME, url: CUSTOM_URL,
-    siteType: 'unknown', platform: 'unknown',
-    runAt: new Date().toISOString(),
-    status: 'pass', uiChecks: [], evidence: [], majorFailures: [],
-    clientId: CLIENT_ID || null,
-    poweredBy: 'leverage.it',
-  };
+  log(CYAN, `\n🔍 Levi — Auditing: ${url}`);
+  log(CYAN, `   Site:      ${siteName}`);
+  log(CYAN, `   Namespace: ${namespace}`);
+  log(CYAN, `   Run ID:    ${GITHUB_RUN_ID || 'local'}\n`);
+
+  const db = initFirebase();
+
+  const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  const uiChecks = [];
+  const evidence = [];
+  const consoleErrors = [];
 
   try {
-    const ctx = await browser.newContext({
-      viewport:  { width: 1440, height: 900 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
-      locale:    'en-US',
-      ignoreHTTPSErrors: true,
-    });
-    const page = await ctx.newPage();
+    // ── DESKTOP PAGE ──────────────────────────────────────────────────────────
+    const page = await browser.newPage();
+    await page.setViewportSize({ width: 1440, height: 900 });
 
-    // ── Load ─────────────────────────────────────────────────────────────────
-    log(`Loading ${CUSTOM_URL}…`);
-    const resp   = await page.goto(CUSTOM_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    const status = resp?.status() || 0;
-    result.httpStatus = status;
-    log(`HTTP ${status}`, status < 400 ? 'pass' : 'fail');
-    if (status >= 400) {
-      result.status = 'fail';
-      result.majorFailures.push('HTTP ' + status + ' — site returned error');
-    }
+    page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text().substring(0, 150)); });
+    page.on('pageerror', err => consoleErrors.push(err.message.substring(0, 150)));
 
-    await page.waitForTimeout(2500);
+    log(CYAN, '  → Loading page (desktop)…');
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForTimeout(3000);
 
-    // ── Detect platform ───────────────────────────────────────────────────────
-    const platform = await detectPlatform(page);
-    result.siteType = platform; result.platform = platform;
-    log(`\nPlatform: ${platform}`, 'section');
+    // Detect platform
+    const detectedPlatform = SITE_TYPE || await detectPlatform(page);
+    log(CYAN, `  → Platform detected: ${detectedPlatform}`);
 
-    // ── Homepage screenshot (clean — before any issue overlays) ──────────────
-    const ssClean = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false });
-    if (ssClean) {
-      result.evidence.push({
-        label: 'Desktop — homepage',
-        url: CUSTOM_URL,
-        screenshot: ssClean.toString('base64'),
-        type: 'desktop',
-        ts: new Date().toISOString(),
-      });
-    }
+    // Desktop screenshot (clean)
+    const desktopShot = await page.screenshot({ type: 'jpeg', quality: 85, fullPage: false });
+    evidence.push({ type: 'desktop', screenshot: desktopShot.toString('base64') });
 
-    // ── Universal checks ──────────────────────────────────────────────────────
-    log('\n── Universal checks ──', 'section');
-    const universal = await runUniversalChecks(page, CUSTOM_URL);
-    universal.forEach(c => {
-      if (!c.screenshot) log(`  ${c.pass ? '✓' : '✗'} ${c.name}${c.detail ? ' ('+c.detail+')' : ''}`, c.pass ? 'pass' : 'fail');
-      else {
-        // Move screenshot from checks to evidence
-        result.evidence.push({ label: c.label, url: c.url, screenshot: c.screenshot_data, type: 'desktop-annotated' });
-      }
-    });
-    result.uiChecks.push(...universal.filter(c => !c.screenshot));
+    // Run all universal checks
+    log(CYAN, '  → Running universal checks…');
+    await runUniversalChecks(page, uiChecks, url, consoleErrors);
 
-    // ── Platform checks ───────────────────────────────────────────────────────
-    log(`\n── ${platform} checks ──`, 'section');
-    const platChecks = await runPlatformChecks(page, platform);
-    platChecks.forEach(c => log(`  ${c.pass ? '✓' : '✗'} ${c.name}${c.detail ? ' ('+c.detail+')' : ''}`, c.pass ? 'pass' : 'fail'));
-    result.uiChecks.push(...platChecks);
+    // Platform-specific checks
+    log(CYAN, `  → Running ${detectedPlatform} checks…`);
+    await runPlatformChecks(page, detectedPlatform, uiChecks);
 
-    await ctx.close();
+    // Desktop annotated screenshot
+    const failSelectors = [];
+    const annotatedShot = await screenshotWithHighlights(page, failSelectors);
+    evidence.push({ type: 'desktop-annotated', screenshot: annotatedShot.toString('base64') });
 
-    // ── Mobile visual test ────────────────────────────────────────────────────
-    log('\n── Mobile visual tests (390px) ──', 'section');
-    const mobileChecks = await runMobileVisualTest(browser, CUSTOM_URL);
-    mobileChecks.forEach(c => {
-      if (!c.screenshot) {
-        log(`  ${c.pass ? '✓' : '✗'} ${c.name}${c.detail ? ' ('+c.detail+')' : ''}`, c.pass ? 'pass' : 'fail');
-        result.uiChecks.push(c);
-      } else {
-        // Mobile screenshot → evidence
-        result.evidence.push({
-          label: c.label,
-          url: c.url,
-          screenshot: c.screenshot_data,
-          type: 'mobile-annotated',
-          highlightCount: c.highlightCount,
-        });
-        log(`  📱 Mobile screenshot captured — ${c.highlightCount} issue(s) highlighted`, c.pass ? 'pass' : 'warn');
-      }
-    });
+    await page.close();
 
-    // ── Final status ──────────────────────────────────────────────────────────
-    const failures = result.uiChecks.filter(c => !c.pass);
-    if (failures.length > 0) {
-      result.status = 'fail';
-      result.majorFailures.push(...failures.slice(0, 5).map(c => c.name));
-    }
+    // ── MOBILE CHECKS + MENU SCREENSHOT ──────────────────────────────────────
+    log(CYAN, '  → Running mobile checks…');
+    await runMobileChecks(browser, url, uiChecks, evidence);
 
-    result.durationMs  = Date.now() - startTime;
-    result.checksTotal = result.uiChecks.length;
-    result.checksPassed = result.uiChecks.filter(c => c.pass).length;
+    // ── RESULTS ───────────────────────────────────────────────────────────────
+    const passed = uiChecks.filter(c => c.pass).length;
+    const failed = uiChecks.filter(c => !c.pass).length;
+    const score  = Math.round(passed / uiChecks.length * 100);
+    const status = failed === 0 ? 'pass' : failed <= 3 ? 'warn' : 'fail';
 
-    log(`\n${'═'.repeat(56)}`, 'section');
-    log(`  ${result.status === 'pass' ? '✅' : '❌'} ${DISPLAY_NAME} — ${result.status.toUpperCase()}`, result.status === 'pass' ? 'pass' : 'fail');
-    log(`  ${result.checksPassed}/${result.checksTotal} checks passed · ${(result.durationMs/1000).toFixed(1)}s · ${result.evidence.length} screenshots`, 'section');
-    log(`${'═'.repeat(56)}`, 'section');
+    log(CYAN, `\n  ── Results: ${passed}/${uiChecks.length} passed (${score}%) ──`);
+    uiChecks.forEach(c => log(c.pass ? GREEN : RED, `  ${c.pass ? '✓' : '✗'} ${c.name}: ${c.detail}`));
 
-    // ── Save to Firebase ──────────────────────────────────────────────────────
-    const basePath = CLIENT_ID
-      ? `customResults/${CLIENT_ID}/${today}/${SITE_NAMESPACE}`
-      : `customResults/${today}/${SITE_NAMESPACE}`;
+    const result = {
+      url,
+      name: siteName,
+      siteType: detectedPlatform,
+      status,
+      score,
+      runAt: new Date().toISOString(),
+      githubRunId: GITHUB_RUN_ID,
+      uiChecks,
+      evidence
+    };
 
-    await saveToFirebase(basePath, result);
-    log(`\nSaved to Firebase: ${basePath}`);
+    await saveResults(db, namespace, result);
+    log(GREEN, `\n✅ Levi audit complete — ${score}% (${passed}/${uiChecks.length} checks passed)\n`);
 
-    // Update latest pointer
-    const latestPath = CLIENT_ID ? `customLatest/${CLIENT_ID}` : 'customLatest';
-    const existing = await fetch(`${FIREBASE_URL}/${latestPath}.json`).then(r => r.json()).catch(() => ({}));
-    await saveToFirebase(latestPath, { ...(existing || {}), [SITE_NAMESPACE]: today });
-
-  } catch (e) {
-    log(`Fatal error: ${e.message}`, 'fail');
-    result.status = 'fail';
-    result.majorFailures.push('Fatal: ' + e.message.slice(0, 60));
-    result.durationMs = Date.now() - startTime;
-    const basePath = CLIENT_ID
-      ? `customResults/${CLIENT_ID}/${today}/${SITE_NAMESPACE}`
-      : `customResults/${today}/${SITE_NAMESPACE}`;
-    await saveToFirebase(basePath, result).catch(() => {});
+  } catch(err) {
+    log(RED, `\n❌ Audit failed: ${err.message}`);
+    console.error(err);
+    process.exit(1);
   } finally {
     await browser.close();
+    if (db) process.exit(0);
   }
 })();
