@@ -478,7 +478,7 @@ async function saveResults(ns, results) {
   const date = new Date().toISOString().slice(0, 10);
   try {
     await firebaseRequest('PUT', `/customResults/${date}/${ns}`, results);
-    await firebaseRequest('PUT', `/customLatest/${ns}`, JSON.stringify(date));
+    await firebaseRequest('PUT', `/customLatest/${ns}`, date);
     log(GREEN, `  ✓ Saved to Firebase: customResults/${date}/${ns}`);
   } catch(e) {
     log(RED, '  ✗ Firebase save failed: ' + e.message);
