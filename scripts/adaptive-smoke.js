@@ -282,7 +282,7 @@ async function checksD(page, checks) {
 }
 
 // ─── GROUP E: PERFORMANCE (8 checks) ─────────────────────────────────────────
-async function checksE(page, checks, consoleErrors) {
+async function checksE(page, url, checks, consoleErrors) {
 
   // E1 - Console errors
   const ce=(consoleErrors||[]).filter(e=>!e.includes('favicon')&&!e.includes('analytics')&&!e.includes('gtag')&&!e.includes('fbq')&&!e.includes('intercom'));
@@ -496,7 +496,7 @@ async function saveResults(db,ns,results){
     log(CYAN,'  → B: Content/UI (12)…');       await checksB(page,url,checks);
     log(CYAN,'  → C: Links/Buttons (8)…');     await checksC(page,url,checks);
     log(CYAN,'  → D: Accessibility (8)…');     await checksD(page,checks);
-    log(CYAN,'  → E: Performance (8)…');       await checksE(page,checks,consoleErrors);
+    log(CYAN,'  → E: Performance (8)…');       await checksE(page,url,checks,consoleErrors);
     log(CYAN,'  → F: Security (6)…');          await checksF(page,url,checks);
     log(CYAN,`  → G: Platform (${platform})…`); await checksG(page,platform,checks);
 
