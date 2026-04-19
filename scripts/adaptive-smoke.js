@@ -819,15 +819,15 @@ async function navPageScreenshots(browser, navLinks, evidence) {
 
   try {
     const page = await browser.newPage();
-  await page.setExtraHTTPHeaders({'Accept-Language':'en-US,en;q=0.9'});
+  await page.setExtraHTTPHeaders({'Accept-Language':'en-US,en;q=0.9','User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'});
   await page.setViewportSize({width:1440,height:900});
   await page.addInitScript(() => {
     Object.defineProperty(navigator,'webdriver',{get:()=>undefined});
     Object.defineProperty(navigator,'plugins',{get:()=>[1,2,3,4,5]});
     Object.defineProperty(navigator,'languages',{get:()=>['en-US','en']});
     window.chrome={runtime:{}};
+    Object.defineProperty(navigator,'userAgent',{get:()=>'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'});
   });
-  await page.context().setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
     await page.setViewportSize({ width: 1440, height: 900 });
     page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text().substring(0, 200)); });
     page.on('pageerror', e => consoleErrors.push(e.message.substring(0, 150)));
