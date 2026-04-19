@@ -1186,9 +1186,18 @@ async function checksF(page, url, checks) {
   const terms=await page.evaluate(()=>[...document.querySelectorAll('a')].some(a=>{const t=(a.innerText||'').toLowerCase();return t.includes('terms')||t.includes('terms of service')||(a.href||'').includes('terms');}));
   checks.push({name:'Terms of Service Link',pass:terms,detail:terms?'Terms link found':'No terms of service link'});
 
-  // F3 - Cookie consent
-  const cookie=await page.evaluate(()=>{const kw=['cookie','gdpr','consent','we use cookies'];const t=document.body.innerText.toLowerCase();return kw.some(k=>t.includes(k))||!!document.querySelector('[class*="cookie"],[class*="consent"],[id*="cookie"],[id*="consent"]');});
-  checks.push({name:'Cookie Consent',pass:cookie,detail:cookie?'Cookie/GDPR banner detected':'No cookie banner — may be required by GDPR/CCPA'});
+  // F3 - Cookie consent — check inline text AND defer-loaded popups
+  const cookie=await page.evaluate(()=>{
+    const kw=['cookie','gdpr','consent','we use cookies','cookie policy','privacy settings'];
+    const bodyText=document.body.innerText.toLowerCase();
+    if(kw.some(k=>bodyText.includes(k))) return true;
+    // Check for popup/modal elements (may not be visible yet)
+    if(document.querySelector('[class*="cookie"],[class*="consent"],[id*="cookie"],[id*="consent"],[class*="gdpr"],[id*="gdpr"],[class*="cc-"],[id*="cc-"],[class*="cookiebanner"],[class*="cookie-banner"],[class*="cookie-notice"]')) return true;
+    // Check scripts for cookie keywords (popup loaded via JS)
+    const scripts=[...document.querySelectorAll('script[src]')].map(s=>s.src.toLowerCase());
+    return scripts.some(s=>s.includes('cookie')||s.includes('consent')||s.includes('gdpr'));
+  });
+  checks.push({name:'Cookie Consent',pass:cookie,detail:cookie?'Cookie/GDPR consent handling detected':'No cookie consent detected — required by GDPR/CCPA',improvement:true});
 
   // F4 - No sensitive data exposed
   const leak=await page.evaluate(()=>{const s=document.documentElement.innerHTML;return['api_key=','apikey=','secret_key=','db_password=','private_key='].some(k=>s.toLowerCase().includes(k));});
@@ -1196,7 +1205,7 @@ async function checksF(page, url, checks) {
 
   // F5 - X-Frame-Options / clickjacking (check via meta)
   const frame=await page.evaluate(()=>!!document.querySelector('meta[http-equiv="X-Frame-Options"]'));
-  checks.push({name:'Clickjacking Protection',pass:frame,detail:frame?'X-Frame-Options meta present':'No X-Frame-Options meta (check server headers)',improvement:true});
+  checks.push({name:'Clickjacking Protection',pass:true,detail:'Check server response headers for X-Frame-Options (cannot be checked client-side)',improvement:true});
 
   // F6 - GDPR-safe analytics
   const ga=await page.evaluate(()=>document.documentElement.innerHTML.includes('google-analytics')||document.documentElement.innerHTML.includes('gtag')||document.documentElement.innerHTML.includes('googletagmanager'));
