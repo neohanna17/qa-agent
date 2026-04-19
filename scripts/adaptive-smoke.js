@@ -219,7 +219,7 @@ async function checksC(page, url, checks) {
 
   // C3 - External links new tab
   const ext=await page.evaluate(()=>{const e=[...document.querySelectorAll('a[href^="http"]')].filter(a=>!a.href.includes(location.hostname));return{total:e.length,noTarget:e.filter(a=>a.target!=='_blank').length};});
-  checks.push({name:'External Links Open New Tab',pass:ext.noTarget===0,detail:ext.noTarget===0?`All ${ext.total} external links use target="_blank"`:`${ext.noTarget}/${ext.total} external links missing target="_blank"`});
+  checks.push({name:'External Links Open New Tab',pass:ext.noTarget===0,detail:ext.noTarget===0?`All ${ext.total} external links open in new tab`:`${ext.noTarget}/${ext.total} external links don't open in new tab`,improvement:true});
 
   // C4 - Nav active state
   const active=await page.evaluate(()=>{
@@ -239,7 +239,7 @@ async function checksC(page, url, checks) {
 
   // C5 - Skip to content
   const skip=await page.$('a[href="#content"],a[href="#main"],a[href="#main-content"],.skip-link,[class*="skip-to"]').then(e=>!!e);
-  checks.push({name:'Skip Navigation Link',pass:skip,detail:skip?'Skip-to-content link found':'No skip nav — needed for keyboard/screen reader users'});
+  checks.push({name:'Skip Navigation Link',pass:skip,detail:skip?'Skip-to-content link found':'No skip-to-content link',improvement:true});
 
   // C6 - Custom 404
   const c404=await page.request.get(new URL(url).origin+'/levi-check-404-page-xyz').then(r=>r.status()===404).catch(()=>false);
@@ -247,7 +247,7 @@ async function checksC(page, url, checks) {
 
   // C7 - Logo links home
   const logoHome=await page.evaluate(origin=>{const h=document.querySelector('header,.header,nav');if(!h)return false;const a=h.querySelector('a[class*="logo"],.logo a,a:has(img),a:has(svg)');if(!a)return false;return a.href===origin||a.href===origin+'/';},new URL(url).origin);
-  checks.push({name:'Logo Links to Homepage',pass:logoHome,detail:logoHome?'Logo correctly links to homepage':'Logo does not link to homepage'});
+  checks.push({name:'Logo Links to Homepage',pass:logoHome,detail:logoHome?'Logo correctly links to homepage':'Logo does not link to homepage',improvement:true});
 
   // C8 - Print stylesheet
   const print=await page.evaluate(()=>!![...document.querySelectorAll('link[rel="stylesheet"]')].find(l=>l.media==='print')||!![...document.querySelectorAll('style')].find(s=>s.textContent.includes('@media print')));
@@ -280,15 +280,15 @@ async function checksD(page, checks) {
 
   // D3 - ARIA landmarks
   const lm=await page.evaluate(()=>({main:!!document.querySelector('main,[role="main"]'),nav:!!document.querySelector('nav,[role="navigation"]'),footer:!!document.querySelector('footer,[role="contentinfo"]')}));
-  checks.push({name:'ARIA Landmarks',pass:lm.main&&lm.nav,detail:lm.main&&lm.nav?'main, nav, footer present':`Missing:${!lm.main?' <main>':''}${!lm.nav?' <nav>':''}${!lm.footer?' <footer>':''}`});
+  checks.push({name:'ARIA Landmarks',pass:lm.main&&lm.nav,detail:lm.main&&lm.nav?'Semantic landmarks present':`Missing:${!lm.main?' <main>':''}${!lm.nav?' <nav>':''}${!lm.footer?' <footer>':''}`,improvement:true});
 
   // D4 - Buttons labelled
   const ub=await page.evaluate(()=>[...document.querySelectorAll('button,[role="button"]')].filter(b=>!(b.innerText||'').trim()&&!b.getAttribute('aria-label')&&!b.getAttribute('title')&&b.offsetParent!==null).length);
-  checks.push({name:'Buttons Have Labels',pass:ub===0,detail:ub===0?'All buttons labelled':`${ub} button(s) missing text/aria-label`});
+  checks.push({name:'Buttons Have Labels',pass:ub===0,detail:ub===0?'All buttons have accessible labels':`${ub} button(s) missing label`,improvement:ub<=3});
 
   // D5 - Focus styles
   const focus=await page.evaluate(()=>{try{for(const s of document.styleSheets){const rules=[...(s.cssRules||[])];if(rules.some(r=>r.selectorText&&r.selectorText.includes(':focus')))return true;}}catch(e){}return false;});
-  checks.push({name:'Focus Styles (Keyboard Nav)',pass:focus,detail:focus?':focus styles in CSS':'No :focus styles — keyboard users can\'t see focus'});
+  checks.push({name:'Focus Styles (Keyboard Nav)',pass:focus,detail:focus?':focus styles defined':'No :focus styles for keyboard navigation',improvement:true});
 
   // D6 - HTML lang
   const lang=await page.$eval('html',e=>e.getAttribute('lang')).catch(()=>'');
@@ -312,7 +312,7 @@ async function checksE(page, url, checks, consoleErrors) {
 
   // E2 - Render-blocking scripts
   const blk=await page.evaluate(()=>[...document.querySelectorAll('script[src]:not([async]):not([defer])')].filter(s=>!s.src.includes('gtm')&&!s.src.includes('analytics')).length);
-  checks.push({name:'Render-Blocking Scripts',pass:blk<=3,detail:blk<=3?`${blk} blocking scripts — OK`:`${blk} render-blocking — use async/defer`});
+  checks.push({name:'Render-Blocking Scripts',pass:blk<=3,detail:blk<=3?`${blk} render-blocking scripts — OK`:`${blk} render-blocking scripts detected`,improvement:blk<=10});
 
   // E3 - Modern image formats
   const mf=await page.evaluate(()=>{const imgs=[...document.querySelectorAll('img[src]')];const mod=imgs.filter(i=>i.src.includes('.webp')||i.src.includes('.avif')||i.src.includes('format=webp'));return{total:imgs.length,mod:mod.length};});
@@ -320,7 +320,7 @@ async function checksE(page, url, checks, consoleErrors) {
 
   // E4 - Lazy loading
   const ll=await page.evaluate(()=>{const imgs=[...document.querySelectorAll('img')].filter(i=>!i.closest('header')&&!i.closest('nav'));const lazy=imgs.filter(i=>i.loading==='lazy'||i.getAttribute('data-src')||i.getAttribute('data-lazy'));return{total:imgs.length,lazy:lazy.length};});
-  checks.push({name:'Image Lazy Loading',pass:ll.total<3||(ll.lazy/ll.total)>=0.4,detail:`${ll.lazy}/${ll.total} images lazy-loaded`});
+  checks.push({name:'Image Lazy Loading',pass:ll.total<3||(ll.lazy/ll.total)>=0.4,detail:`${ll.lazy}/${ll.total} images use lazy loading`,improvement:true});
 
   // E5 - Page load time
   const lt=await page.evaluate(()=>{const n=performance.getEntriesByType('navigation')[0];return n?Math.round(n.domContentLoadedEventEnd):null;});
