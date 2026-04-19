@@ -184,8 +184,10 @@ async function checksB(page, url, checks) {
   checks.push({name:'Image Alt Text',pass:alts.miss===0,detail:alts.miss===0?`All ${alts.total} images have alt`:`${alts.miss}/${alts.total} missing alt`});
 
   // B8 - Broken images
-  const brk=await page.evaluate(()=>[...document.querySelectorAll('img')].filter(i=>i.complete&&i.naturalWidth===0&&i.src&&!i.src.startsWith('data:')).map(i=>i.src.split('/').pop().substring(0,40)));
-  checks.push({name:'No Broken Images',pass:brk.length===0,detail:brk.length===0?'All images loaded':`${brk.length} broken: ${brk.slice(0,3).join(', ')}`});
+  const brk=await page.evaluate(()=>[...document.querySelectorAll('img')].filter(i=>i.complete&&i.naturalWidth===0&&i.src&&!i.src.startsWith('data:')).map(i=>({name:i.src.split('/').pop().substring(0,60),url:i.src})));
+  checks.push({name:'No Broken Images',pass:brk.length===0,
+    detail:brk.length===0?'All images loaded':`${brk.length} broken image(s)`,
+    items:brk.map(b=>b.url)});
 
   // B9 - Social links
   const soc=await page.evaluate(()=>[...new Set([...document.querySelectorAll('a[href]')].map(a=>{const m=a.href.match(/(?:facebook|instagram|twitter|linkedin|youtube|tiktok|pinterest)\.com/);return m?m[0].split('.')[0]:null;}).filter(Boolean))]);
@@ -208,14 +210,18 @@ async function checksB(page, url, checks) {
 async function checksC(page, url, checks) {
 
   // C1 - Link href validity
-  const lnk=await page.evaluate(()=>{const b=[],v=[];[...document.querySelectorAll('a')].forEach(el=>{const h=el.getAttribute('href');const t=(el.innerText||el.textContent||'').trim().substring(0,40);if(!t||el.offsetParent===null)return;if(!h||h==='#'||h===''||h.startsWith('javascript:'))b.push(t);else v.push(h);});return{broken:[...new Set(b)].slice(0,5),valid:v.length};});
-  checks.push({name:'Link Href Validity',pass:lnk.broken.length===0,detail:lnk.broken.length===0?`All ${lnk.valid} links valid`:`${lnk.broken.length} empty/# href: ${lnk.broken.map(t=>'"'+t+'"').join(', ')}`});
+  const lnk=await page.evaluate(()=>{const b=[],v=[];[...document.querySelectorAll('a')].forEach(el=>{const h=el.getAttribute('href');const t=(el.innerText||el.textContent||'').trim().substring(0,60);if(!t||el.offsetParent===null)return;if(!h||h==='#'||h===''||h.startsWith('javascript:'))b.push(t);else v.push(h);});return{broken:[...new Set(b)].slice(0,15),valid:v.length};});
+  checks.push({name:'Link Href Validity',pass:lnk.broken.length===0,
+    detail:lnk.broken.length===0?`All ${lnk.valid} links have valid hrefs`:`${lnk.broken.length} link(s) with empty or # href`,
+    items:lnk.broken});
 
   // C2 - Internal 404 check
   const intLinks=await page.evaluate(base=>{try{const o=new URL(base).origin;return[...new Set([...document.querySelectorAll('a[href]')].map(a=>a.href).filter(h=>h.startsWith(o)&&!h.includes('#')&&!h.includes('mailto:')&&!h.includes('tel:')&&h!==base&&h!==base+'/'))].slice(0,8);}catch(e){return[];}},url);
   const b404=[];
   for(const l of intLinks){try{const r=await page.request.get(l,{timeout:6000});if(r.status()===404||r.status()===410)b404.push(l.replace(new URL(url).origin,'').substring(0,50));}catch(e){}}
-  checks.push({name:'Internal Links (No 404s)',pass:b404.length===0,detail:b404.length===0?`All ${intLinks.length} internal links OK`:`${b404.length} broken: ${b404.join(', ')}`});
+  checks.push({name:'Internal Links (No 404s)',pass:b404.length===0,
+    detail:b404.length===0?`All ${intLinks.length} internal links OK`:`${b404.length} broken link(s) returning 404`,
+    items:b404});
 
   // C3 - External links new tab
   const ext=await page.evaluate(()=>{const e=[...document.querySelectorAll('a[href^="http"]')].filter(a=>!a.href.includes(location.hostname));return{total:e.length,noTarget:e.filter(a=>a.target!=='_blank').length};});
@@ -308,7 +314,10 @@ async function checksE(page, url, checks, consoleErrors) {
 
   // E1 - Console errors
   const ce=(consoleErrors||[]).filter(e=>!e.includes('favicon')&&!e.includes('analytics')&&!e.includes('gtag')&&!e.includes('fbq')&&!e.includes('intercom'));
-  checks.push({name:'No JavaScript Errors',pass:ce.length===0,detail:ce.length===0?'No JS errors':ce.length+' error(s): '+ce.slice(0,2).map(e=>e.substring(0,60)).join(' | ')});
+  const ceUniq=[...new Set(ce)];
+  checks.push({name:'No JavaScript Errors',pass:ceUniq.length===0,
+    detail:ceUniq.length===0?'No JS errors':`${ceUniq.length} JS error(s) on page load`,
+    items:ceUniq.slice(0,10).map(e=>e.substring(0,120))});
 
   // E2 - Render-blocking scripts
   const blk=await page.evaluate(()=>[...document.querySelectorAll('script[src]:not([async]):not([defer])')].filter(s=>!s.src.includes('gtm')&&!s.src.includes('analytics')).length);
@@ -331,8 +340,11 @@ async function checksE(page, url, checks, consoleErrors) {
   checks.push({name:'Font Preconnect/Preload',pass:fp>0,detail:fp>0?`${fp} font preconnect/preload link(s)`:'No font preconnect — may cause layout shift',improvement:true});
 
   // E7 - Mixed content
-  const mc=url.startsWith('https://')?await page.evaluate(()=>[...document.querySelectorAll('[src^="http:"]')].length):0;
-  checks.push({name:'No Mixed Content',pass:mc===0,detail:mc===0?'No HTTP resources on HTTPS page':`${mc} HTTP resource(s) on HTTPS — causes warnings`});
+  const mcItems=url.startsWith('https://')?await page.evaluate(()=>[...document.querySelectorAll('[src^="http:"]')].map(e=>e.src||e.getAttribute('src')).slice(0,8)):[];
+  const mc=mcItems.length;
+  checks.push({name:'No Mixed Content',pass:mc===0,
+    detail:mc===0?'No HTTP resources on HTTPS page':`${mc} HTTP resource(s) loaded over HTTP on HTTPS page`,
+    items:mcItems});
 
   // E8 - Inline critical CSS
   const css=await page.$('style').then(e=>!!e);
@@ -408,7 +420,9 @@ async function checksH(browser, url, checks, evidence) {
     checks.push({name:'[Mobile] No Horizontal Overflow',pass:ov.count===0,detail:ov.count===0?'No overflow on 390px':`${ov.count} element(s) overflow: ${ov.tags.join(', ')}`});
 
     const tt=await mob.evaluate(()=>[...document.querySelectorAll('a,button,[role=button]')].filter(e=>e.offsetParent!==null).filter(e=>{const r=e.getBoundingClientRect();return r.height>0&&r.width>0&&(r.height<36||r.width<36);}).length);
-    checks.push({name:'[Mobile] Tap Target Size',pass:tt===0,detail:tt===0?'All tap targets ≥36px':`${tt} target(s) below 36px`});
+    checks.push({name:'[Mobile] Tap Target Size',pass:tt===0,
+    detail:tt===0?'All tap targets ≥36px':`${tt} tap target(s) below minimum 36×36px — hard to tap on mobile`,
+    items:tt>0?['See mobile screenshot for highlighted elements']:[]});
 
     const st=await mob.evaluate(()=>[...document.querySelectorAll('p,li,span,a,td')].filter(e=>{const s=parseFloat(getComputedStyle(e).fontSize);return s<12&&e.offsetParent!==null&&(e.innerText||'').trim().length>3;}).length);
     checks.push({name:'[Mobile] Text Size (≥12px)',pass:st===0,detail:st===0?'All text ≥12px':`${st} elements below 12px`});
