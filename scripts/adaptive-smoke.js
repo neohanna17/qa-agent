@@ -210,9 +210,26 @@ async function checksB(page, url, checks) {
 async function checksC(page, url, checks) {
 
   // C1 - Link href validity
-  const lnk=await page.evaluate(()=>{const b=[],v=[];[...document.querySelectorAll('a')].forEach(el=>{const h=el.getAttribute('href');const t=(el.innerText||el.textContent||'').trim().substring(0,60);if(!t||el.offsetParent===null)return;if(!h||h==='#'||h===''||h.startsWith('javascript:'))b.push(t);else v.push(h);});return{broken:[...new Set(b)].slice(0,15),valid:v.length};});
+  const lnk=await page.evaluate(()=>{
+    const b=[],v=[];
+    [...document.querySelectorAll('a')].forEach(el=>{
+      const h=el.getAttribute('href');
+      const t=(el.innerText||el.textContent||'').trim().substring(0,60);
+      if(!t||el.offsetParent===null)return;
+      // Skip accordion/dropdown/FAQ toggle links — they intentionally use # as JS triggers
+      if(el.hasAttribute('data-toggle')||el.hasAttribute('data-target')||
+         el.hasAttribute('aria-expanded')||el.hasAttribute('aria-controls')||
+         el.getAttribute('role')==='button'||el.getAttribute('role')==='tab'||
+         el.closest('[class*="accordion"],[class*="faq"],[class*="dropdown"],[class*="collapse"],[class*="tab"],[class*="toggle"],[data-toggle],[data-accordion]'))return;
+      // Skip href="#id" anchor links (valid in-page links)
+      if(h&&h.startsWith('#')&&h.length>1)return;
+      if(!h||h==='#'||h===''||h.startsWith('javascript:'))b.push(t);
+      else v.push(h);
+    });
+    return{broken:[...new Set(b)].slice(0,15),valid:v.length};
+  });
   checks.push({name:'Link Href Validity',pass:lnk.broken.length===0,
-    detail:lnk.broken.length===0?`All ${lnk.valid} links have valid hrefs`:`${lnk.broken.length} link(s) with empty or # href`,
+    detail:lnk.broken.length===0?`All ${lnk.valid} links have valid hrefs`:`${lnk.broken.length} link(s) with empty or # href — may be dev placeholders`,
     items:lnk.broken});
 
   // C2 - Internal 404 check
