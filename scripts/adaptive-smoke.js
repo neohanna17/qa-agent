@@ -239,14 +239,14 @@ async function checksA(page, url, checks) {
   checks.push({ name:'Viewport Meta Tag', pass: !!vp, detail: vp ? 'Present' : 'Missing — site may not be mobile-friendly' });
   // A8
   const can = await page.$eval('link[rel="canonical"]', e => e.href).catch(() => '');
-  checks.push({ name:'Canonical Tag', pass: !!can, detail: can ? can.substring(0, 60) : 'No canonical tag' });
+  checks.push({ name:'Canonical Tag', pass: !!can, detail: can ? can.substring(0, 60) : 'No canonical tag' , improvement:true });
   // A9
   const ogT = await page.$eval('meta[property="og:title"]', e => e.content).catch(() => '');
   const ogI = await page.$eval('meta[property="og:image"]', e => e.content).catch(() => '');
   checks.push({ name:'Open Graph Tags', pass: !!ogT && !!ogI, detail: ogT && ogI ? 'og:title + og:image found' : !ogT ? 'Missing og:title' : !ogI ? 'Missing og:image' : 'Incomplete OG tags' });
   // A10
   const schema = await page.$('script[type="application/ld+json"]').then(e => !!e);
-  checks.push({ name:'Structured Data (Schema)', pass: schema, detail: schema ? 'JSON-LD found' : 'No JSON-LD schema markup' });
+  checks.push({ name:'Structured Data (Schema)', pass: schema, detail: schema ? 'JSON-LD found' : 'No JSON-LD schema markup' , improvement:true });
   // A11
   const robots = await page.$eval('meta[name="robots"]', e => e.content).catch(() => 'index,follow');
   const rOk   = !robots.includes('noindex');
@@ -329,13 +329,13 @@ async function checksB(page, url, checks) {
   checks.push({ name:'No Broken Images', pass: brk === 0, detail: brk === 0 ? 'All images load correctly' : `${brk} broken image(s)` });
   // B9
   const soc = await page.evaluate(() => [...new Set([...document.querySelectorAll('a[href]')].map(a => a.href).filter(h => /facebook|twitter|instagram|linkedin|youtube|tiktok|pinterest/.test(h)))]);
-  checks.push({ name:'Social Media Links', pass: soc.length > 0, detail: soc.length > 0 ? `Found: ${soc.length} social link(s)` : 'No social media links found' });
+  checks.push({ name:'Social Media Links', pass: soc.length > 0, detail: soc.length > 0 ? `Found: ${soc.length} social link(s)` : 'No social media links found' , improvement:true });
   // B10
   const copy = await page.evaluate(y => {
     const t = (document.querySelector('footer,.footer,#footer') || document.body).innerText;
     return new RegExp('©|copyright|'+y+'|'+(y-1)).test(t.toLowerCase());
   }, new Date().getFullYear());
-  checks.push({ name:'Copyright in Footer', pass: copy, detail: copy ? 'Copyright info found' : 'No copyright in footer' });
+  checks.push({ name:'Copyright in Footer', pass: copy, detail: copy ? 'Copyright info found' : 'No copyright in footer' , improvement:true });
   // B11
   const phone = await page.evaluate(() => [...document.querySelectorAll('a[href^="tel:"],a[href^="mailto:"]')].length > 0);
   checks.push({ name:'Phone / Email Link', pass: phone, detail: phone ? 'Clickable tel/mailto link found' : 'No tel/mailto links' });
@@ -391,7 +391,7 @@ async function checksC(page, url, checks) {
     const e = [...document.querySelectorAll('a[href^="http"]')].filter(a => !a.href.includes(location.hostname));
     return { total: e.length, noTarget: e.filter(a => a.target !== '_blank').length };
   });
-  checks.push({ name:'External Links Open New Tab', pass: ext.noTarget === 0, detail: ext.noTarget === 0 ? `All ${ext.total} external links use target="_blank"` : `${ext.noTarget}/${ext.total} external links missing target="_blank"` });
+  checks.push({ name:'External Links Open New Tab', pass: ext.noTarget === 0, detail: ext.noTarget === 0 ? `All ${ext.total} external links use target="_blank"` : `${ext.noTarget}/${ext.total} external links missing target="_blank"` , improvement:true });
   // C4 - Nav active state: checks classes, visual styles, AND dropdown sub-items
   const active = await page.evaluate(() => {
     const nav = document.querySelector('nav,header,.navbar,.navigation,.menu,#menu,#nav,[class*="nav-wrap"],[class*="main-menu"]');
@@ -444,7 +444,7 @@ async function checksC(page, url, checks) {
   }
   // C5b - Skip nav
   const skip = await page.$('a[href="#content"],a[href="#main"],a[href="#main-content"],.skip-link,[class*="skip-to"]').then(e => !!e);
-  checks.push({ name:'Skip Navigation Link', pass: skip, detail: skip ? 'Skip-to-content link found' : 'No skip nav — needed for keyboard/screen reader users' });
+  checks.push({ name:'Skip Navigation Link', pass: skip, detail: skip ? 'Skip-to-content link found' : 'No skip nav — needed for keyboard/screen reader users' , improvement:true });
   // C6
   const c404 = await page.request.get(new URL(url).origin + '/levi-check-404-page-xyz').then(r => r.status() === 404).catch(() => false);
   checks.push({ name:'Custom 404 Page', pass: c404, detail: c404 ? 'Returns proper 404' : 'Site does not return 404 for missing pages' });
@@ -456,7 +456,7 @@ async function checksC(page, url, checks) {
     if (!a) return false;
     return a.href === origin || a.href === origin + '/';
   }, new URL(url).origin);
-  checks.push({ name:'Logo Links to Homepage', pass: logoHome, detail: logoHome ? 'Logo correctly links to homepage' : 'Logo does not link to homepage' });
+  checks.push({ name:'Logo Links to Homepage', pass: logoHome, detail: logoHome ? 'Logo correctly links to homepage' : 'Logo does not link to homepage' , improvement:true });
 }
 
 // ─── GROUP D: ACCESSIBILITY (7 checks, autocomplete conditional) ──────────────
@@ -495,10 +495,10 @@ async function checksD(page, checks) {
   if (fr.count > 0) checks.push({ name:'Form Accessibility', pass: fr.issues.length === 0, detail: fr.issues.length === 0 ? `${fr.count} form(s) accessible` : fr.issues.slice(0,3).join('; ') });
   // D3
   const lm = await page.evaluate(() => ({ main: !!document.querySelector('main,[role="main"]'), nav: !!document.querySelector('nav,[role="navigation"]') }));
-  checks.push({ name:'ARIA Landmarks', pass: lm.main && lm.nav, detail: lm.main && lm.nav ? 'main, nav landmarks present' : `Missing: ${!lm.main?'<main> ':''}${!lm.nav?'<nav>':''}` });
+  checks.push({ name:'ARIA Landmarks', pass: lm.main && lm.nav, detail: lm.main && lm.nav ? 'main, nav landmarks present' : `Missing: ${!lm.main?'<main> ':''}${!lm.nav?'<nav>':''}` , improvement:true });
   // D4
   const ub = await page.evaluate(() => [...document.querySelectorAll('button,[role="button"]')].filter(b => !(b.innerText||'').trim() && !b.getAttribute('aria-label') && !b.getAttribute('title')).length);
-  checks.push({ name:'Buttons Have Labels', pass: ub === 0, detail: ub === 0 ? 'All buttons labelled' : `${ub} unlabelled button(s)` });
+  checks.push({ name:'Buttons Have Labels', pass: ub === 0, detail: ub === 0 ? 'All buttons labelled' : `${ub} unlabelled button(s)` , improvement:true });
   // D5
   const focus = await page.evaluate(() => {
     try {
@@ -509,7 +509,7 @@ async function checksD(page, checks) {
     } catch(e) {}
     return false;
   });
-  checks.push({ name:'Focus Styles (Keyboard Nav)', pass: focus, detail: focus ? ':focus styles found' : 'No :focus CSS — keyboard users may lose focus indicator' });
+  checks.push({ name:'Focus Styles (Keyboard Nav)', pass: focus, detail: focus ? ':focus styles found' : 'No :focus CSS — keyboard users may lose focus indicator' , improvement:true });
   // D6
   const lang = await page.$eval('html', e => e.getAttribute('lang')).catch(() => '');
   checks.push({ name:'HTML Lang Attribute', pass: !!lang, detail: lang ? `lang="${lang}"` : 'Missing lang attribute on <html>' });
@@ -519,7 +519,7 @@ async function checksD(page, checks) {
     const miss = inps.filter(i => !i.getAttribute('autocomplete'));
     return { count: inps.length, miss: miss.length };
   });
-  if (ac.count > 0) checks.push({ name:'Input Autocomplete', pass: ac.miss === 0, detail: ac.miss === 0 ? 'Autocomplete attributes present' : `${ac.miss} input(s) missing autocomplete` });
+  if (ac.count > 0) checks.push({ name:'Input Autocomplete', pass: ac.miss === 0, detail: ac.miss === 0 ? 'Autocomplete attributes present' : `${ac.miss} input(s) missing autocomplete` , improvement:true });
 }
 
 // ─── GROUP E: PERFORMANCE (7 checks, inline CSS removed) ─────────────────────
@@ -529,21 +529,21 @@ async function checksE(page, url, checks, consoleErrors) {
   checks.push({ name:'No JavaScript Errors', pass: ce.length === 0, detail: ce.length === 0 ? 'No JS errors in console' : `${ce.length} JS error(s): ${ce.slice(0,2).join('; ').substring(0,120)}` });
   // E2
   const blk = await page.evaluate(() => [...document.querySelectorAll('script[src]:not([async]):not([defer])')].length);
-  checks.push({ name:'Render-Blocking Scripts', pass: blk <= 3, detail: blk <= 3 ? `${blk} blocking scripts (OK)` : `${blk} render-blocking scripts — add async/defer` });
+  checks.push({ name:'Render-Blocking Scripts', pass: blk <= 3, detail: blk <= 3 ? `${blk} blocking scripts (OK)` : `${blk} render-blocking scripts — add async/defer` , improvement:true });
   // E3
   const mf = await page.evaluate(() => {
     const imgs = [...document.querySelectorAll('img[src]')].filter(i => i.naturalWidth > 0);
     const mod  = imgs.filter(i => /\.webp|\.avif/.test(i.src)).length;
     return { total: imgs.length, mod };
   });
-  checks.push({ name:'Modern Image Formats (WebP)', pass: mf.total === 0 || (mf.mod/mf.total) >= 0.3, detail: `${mf.mod}/${mf.total} images use WebP/AVIF` });
+  checks.push({ name:'Modern Image Formats (WebP)', pass: mf.total === 0 || (mf.mod/mf.total) >= 0.3, detail: `${mf.mod}/${mf.total} images use WebP/AVIF` , improvement:true });
   // E4
   const ll = await page.evaluate(() => {
     const imgs = [...document.querySelectorAll('img')].filter(i => i.offsetParent !== null);
     const lazy = imgs.filter(i => i.getAttribute('loading') === 'lazy').length;
     return { total: imgs.length, lazy };
   });
-  checks.push({ name:'Image Lazy Loading', pass: ll.total < 3 || (ll.lazy/ll.total) >= 0.4, detail: `${ll.lazy}/${ll.total} images use loading="lazy"` });
+  checks.push({ name:'Image Lazy Loading', pass: ll.total < 3 || (ll.lazy/ll.total) >= 0.4, detail: `${ll.lazy}/${ll.total} images use loading="lazy"` , improvement:true });
   // E5
   const lt = await page.evaluate(() => {
     const n = performance.getEntriesByType('navigation')[0];
@@ -552,7 +552,7 @@ async function checksE(page, url, checks, consoleErrors) {
   checks.push({ name:'Page Load Time', pass: !lt || lt < 3000, detail: lt ? `DOMContentLoaded: ${lt}ms` : 'Timing not available' });
   // E6
   const fp = await page.evaluate(() => [...document.querySelectorAll('link[rel="preconnect"],link[rel="preload"][as="font"]')].length);
-  checks.push({ name:'Font Preconnect/Preload', pass: fp > 0, detail: fp > 0 ? `${fp} font preconnect/preload hint(s)` : 'No font preconnect — may slow font loading' });
+  checks.push({ name:'Font Preconnect/Preload', pass: fp > 0, detail: fp > 0 ? `${fp} font preconnect/preload hint(s)` : 'No font preconnect — may slow font loading' , improvement:true });
   // E7
   const mc = url.startsWith('https://') ? await page.evaluate(() => [...document.querySelectorAll('img[src^="http:"],script[src^="http:"],link[href^="http:"]')].length) : 0;
   checks.push({ name:'No Mixed Content', pass: mc === 0, detail: mc === 0 ? 'No HTTP resources on HTTPS page' : `${mc} mixed content resource(s)` });
@@ -568,7 +568,7 @@ async function checksF(page, url, checks) {
     const t = (a.innerText||'').toLowerCase();
     return (t.includes('terms') || t.includes('conditions') || t.includes('legal')) && a.href;
   }));
-  checks.push({ name:'Terms of Service Link', pass: terms, detail: terms ? 'Terms link found' : 'No terms of service link' });
+  checks.push({ name:'Terms of Service Link', pass: terms, detail: terms ? 'Terms link found' : 'No terms of service link' , improvement:true });
   // F3 - Cookie consent: check popups, scripts, and inline text
   const cookie = await page.evaluate(() => {
     const kw = ['cookie','gdpr','consent','we use cookies','cookie policy','privacy settings'];
@@ -577,7 +577,7 @@ async function checksF(page, url, checks) {
     const scripts = [...document.querySelectorAll('script[src]')].map(s => s.src.toLowerCase());
     return scripts.some(s => s.includes('cookie') || s.includes('consent') || s.includes('gdpr'));
   });
-  checks.push({ name:'Cookie Consent', pass: cookie, detail: cookie ? 'Cookie/GDPR consent handling found' : 'No cookie consent detected' });
+  checks.push({ name:'Cookie Consent', pass: cookie, detail: cookie ? 'Cookie/GDPR consent handling found' : 'No cookie consent detected' , improvement:true });
   // F4
   const leak = await page.evaluate(() => {
     const s = document.documentElement.innerHTML;
@@ -586,7 +586,7 @@ async function checksF(page, url, checks) {
   checks.push({ name:'No Sensitive Data Exposed', pass: !leak, detail: !leak ? 'No credential leaks detected' : 'Possible credentials in page source' });
   // F5 - Analytics (informational, always pass)
   const ga = await page.evaluate(() => document.documentElement.innerHTML.includes('google-analytics') || document.documentElement.innerHTML.includes('gtag') || document.documentElement.innerHTML.includes('googletagmanager'));
-  checks.push({ name:'Analytics Detected', pass: true, detail: ga ? 'Google Analytics/GTM found — tracking active' : 'No analytics detected (informational)' });
+  checks.push({ name:'Analytics Detected', pass: true, detail: ga ? 'Google Analytics/GTM found — tracking active' : 'No analytics detected (informational)' , improvement:true });
 }
 
 // ─── GROUP G: PLATFORM-SPECIFIC (N/A when not applicable) ────────────────────
@@ -691,7 +691,7 @@ async function checksH(browser, url, checks, evidence) {
     checks.push({ name:'[Mobile] Input Font ≥16px', pass: si === 0, detail: si === 0 ? 'All inputs ≥16px — no iOS auto-zoom' : `${si} input(s) below 16px — iOS will auto-zoom on focus` });
 
     const tc = await mob.$eval('meta[name="theme-color"]', e => e.content).catch(() => '');
-    checks.push({ name:'[Mobile] Theme Color Meta', pass: !!tc, detail: tc ? `theme-color: ${tc}` : 'No theme-color meta — browser chrome unbranded on mobile' });
+    checks.push({ name:'[Mobile] Theme Color Meta', pass: !!tc, detail: tc ? `theme-color: ${tc}` : 'No theme-color meta — browser chrome unbranded on mobile' , improvement:true });
 
     // Mobile annotated screenshot
     await mob.evaluate((checksArr) => {
