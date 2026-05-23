@@ -4,201 +4,253 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Site Detail — QA Dashboard</title>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"><\/script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"><\/script>
 <style>
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0f0f14;color:#e2e2ef;font-family:Inter,system-ui,sans-serif;font-size:13px;min-height:100vh;line-height:1.5}
-a{color:#818cf8;text-decoration:none} a:hover{text-decoration:underline}
-::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:#0f0f14}::-webkit-scrollbar-thumb{background:#2d2d3f;border-radius:3px}
-.topnav{background:#0a0a0f;border-bottom:1px solid #1e1e2e;padding:12px 24px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:50;flex-wrap:wrap}
-.back-btn{display:flex;align-items:center;gap:6px;color:#6b7280;font-size:12px;padding:5px 10px;border:1px solid #1e1e2e;border-radius:6px;cursor:pointer;background:transparent;transition:all .15s;white-space:nowrap}
-.back-btn:hover{border-color:#3d3d52;color:#e2e2ef}
-.nav-title{font-weight:600;font-size:14px;white-space:nowrap}
+body{background:#f5f6fa;color:#111827;font-family:Inter,system-ui,sans-serif;font-size:13px;min-height:100vh;line-height:1.5}
+a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:#f0f0f5}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:3px}
+.auth-gate{position:fixed;inset:0;background:#f5f6fa;display:flex;align-items:center;justify-content:center;z-index:1000}
+.auth-box{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:40px;width:360px;box-shadow:0 4px 24px rgba(0,0,0,.07)}
+.auth-logo{font-size:20px;font-weight:700;color:#111827;margin-bottom:6px}
+.auth-sub{color:#6b7280;font-size:13px;margin-bottom:28px}
+.auth-label{font-size:12px;font-weight:500;color:#374151;margin-bottom:6px;display:block}
+.auth-input{width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px 14px;font-family:inherit;font-size:13px;color:#111827;outline:none;margin-bottom:16px;background:#fff}
+.auth-input:focus{border-color:#4f46e5;box-shadow:0 0 0 3px #4f46e515}
+.auth-btn{width:100%;background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:11px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.auth-btn:hover{background:#4338ca}
+.auth-err{color:#ef4444;font-size:12px;margin-top:10px;text-align:center;display:none}
+.topnav{background:#fff;border-bottom:1px solid #e5e7eb;padding:12px 24px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:50;flex-wrap:wrap}
+.back-btn{display:flex;align-items:center;gap:6px;color:#6b7280;font-size:12px;padding:5px 10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;background:#fff;transition:all .15s}
+.back-btn:hover{border-color:#9ca3af;color:#111827}
+.nav-title{font-weight:700;font-size:14px;color:#111827;white-space:nowrap}
 .nav-status{margin-left:auto}
-.badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:3px 9px;border-radius:20px;letter-spacing:.04em}
-.badge-pass{background:#16543020;color:#4ade80;border:1px solid #4ade8040}
-.badge-fail{background:#5c111120;color:#f87171;border:1px solid #f8717140}
-.badge-warn{background:#78350f20;color:#fbbf24;border:1px solid #fbbf2440}
-.badge-info{background:#1e3a5f20;color:#60a5fa;border:1px solid #60a5fa40}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:3px 9px;border-radius:12px;letter-spacing:.04em}
+.badge-pass{background:#dcfce7;color:#16a34a}
+.badge-fail{background:#fee2e2;color:#ef4444}
+.badge-warn{background:#fef3c7;color:#d97706}
+.badge-info{background:#ede9fe;color:#7c3aed}
 .wrap{max-width:1100px;margin:0 auto;padding:24px 24px 60px}
-.hero{background:linear-gradient(135deg,#13131f,#16162a);border:1px solid #1e1e2e;border-radius:14px;padding:24px 28px;margin-bottom:20px;display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap}
+.hero{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:24px 28px;margin-bottom:20px;display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap;box-shadow:0 1px 4px rgba(0,0,0,.04)}
 .hero-left{flex:1;min-width:200px}
-.hero-title{font-size:24px;font-weight:700;margin-bottom:4px}
+.hero-title{font-size:22px;font-weight:700;color:#111827;margin-bottom:4px}
 .hero-url{color:#6b7280;font-size:12px;margin-bottom:12px}
 .hero-meta{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:#6b7280;align-items:center}
 .hero-right{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
 .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px}
-.stat-card{background:#13131f;border:1px solid #1e1e2e;border-radius:10px;padding:14px 16px}
-.stat-label{font-size:10px;color:#4b5563;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
-.stat-value{font-size:20px;font-weight:700}
-.stat-sub{font-size:10px;color:#4b5563;margin-top:2px}
-.stat-bar{height:3px;background:#1e1e2e;border-radius:2px;margin-top:8px;overflow:hidden}
+.stat-card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.stat-label{font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.stat-value{font-size:20px;font-weight:700;color:#111827}
+.stat-sub{font-size:10px;color:#9ca3af;margin-top:2px}
+.stat-bar{height:3px;background:#f3f4f6;border-radius:2px;margin-top:8px;overflow:hidden}
 .stat-bar-fill{height:100%;border-radius:2px}
-.section{background:#13131f;border:1px solid #1e1e2e;border-radius:12px;margin-bottom:16px;overflow:hidden}
-.section-hdr{padding:14px 18px;border-bottom:1px solid #1a1a2a;display:flex;align-items:center;justify-content:space-between}
-.section-title{font-weight:600;font-size:13px}
+.section{background:#fff;border:1px solid #e5e7eb;border-radius:12px;margin-bottom:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.section-hdr{padding:14px 18px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;background:#fafafa}
+.section-title{font-weight:600;font-size:13px;color:#111827}
 .section-body{padding:16px 18px}
 .check-item{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:7px;transition:background .1s}
-.check-item:hover{background:#1a1a2a}
+.check-item:hover{background:#f9fafb}
 .check-icon{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;font-weight:700;margin-top:1px}
-.ci-pass{background:#16543030;color:#4ade80}
-.ci-fail{background:#5c111130;color:#f87171}
-.check-name{flex:1;font-size:12px;line-height:1.4}
-.check-detail{font-size:11px;color:#6b7280;text-align:right;max-width:280px;word-break:break-all;line-height:1.4}
-.check-url-lnk{font-size:10px;color:#818cf8;display:block;margin-top:2px}
-.issues-panel{background:#1a0a0a;border:1px solid #f8717120;border-radius:10px;padding:14px 16px;margin-bottom:16px}
-.issues-title{color:#f87171;font-weight:600;font-size:12px;margin-bottom:10px}
-.issue-row{display:flex;gap:8px;padding:8px 0;border-bottom:1px solid #2a1010;align-items:flex-start}
+.ci-pass{background:#dcfce7;color:#16a34a}
+.ci-fail{background:#fee2e2;color:#ef4444}
+.check-name{flex:1;font-size:12px;line-height:1.4;color:#374151}
+.check-detail{font-size:11px;color:#9ca3af;text-align:right;max-width:280px;word-break:break-all;line-height:1.4}
+.check-url-lnk{font-size:10px;color:#4f46e5;display:block;margin-top:2px}
+.issues-panel{background:#fff5f5;border:1px solid #fecaca;border-radius:10px;padding:14px 16px;margin-bottom:16px}
+.issues-title{color:#ef4444;font-weight:600;font-size:12px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.issue-row{padding:10px 0;border-bottom:1px solid #fde8e8;display:flex;gap:8px;align-items:flex-start}
 .issue-row:last-child{border:none;padding-bottom:0}
-.issue-arr{color:#f87171;flex-shrink:0;font-size:13px;margin-top:1px}
+.issue-arr{color:#ef4444;flex-shrink:0;font-size:14px;margin-top:1px}
 .issue-body{flex:1}
-.issue-text{font-size:11px;color:#fca5a5;line-height:1.5}
-.issue-lnk{display:inline-block;font-size:10px;color:#818cf8;margin-top:3px}
+.issue-text{font-size:11px;color:#991b1b;line-height:1.5;margin-bottom:4px;font-weight:500}
+.issue-lnk{display:inline-block;font-size:10px;color:#4f46e5;margin-top:2px}
+.issue-fix{font-size:10px;color:#6b7280;line-height:1.5;margin-top:4px;background:#fef9f9;padding:6px 8px;border-radius:5px;border-left:2px solid #fca5a5}
+.task-btn{background:#4f46e5;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-top:6px}
+.task-btn:hover{background:#4338ca}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center;padding:20px}
+.modal-bg.open{display:flex}
+.modal{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:24px;max-width:540px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.12)}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px}
+.modal-title{font-weight:700;font-size:15px;color:#111827}
+.modal-sub{font-size:11px;color:#6b7280;margin-top:3px}
+.modal-close{background:transparent;border:none;color:#9ca3af;font-size:20px;cursor:pointer;line-height:1;padding:0}
+.modal-close:hover{color:#374151}
+.form-group{margin-bottom:14px}
+.form-label{font-size:11px;font-weight:600;color:#374151;margin-bottom:5px;display:block}
+.form-input,.form-select,.form-textarea{width:100%;border:1px solid #d1d5db;border-radius:7px;padding:8px 12px;font-family:inherit;font-size:12px;color:#111827;outline:none;background:#fff}
+.form-input:focus,.form-select:focus,.form-textarea:focus{border-color:#4f46e5;box-shadow:0 0 0 3px #4f46e510}
+.form-textarea{min-height:80px;resize:vertical;line-height:1.5}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.task-submit-btn{background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;width:100%;margin-top:4px}
+.task-submit-btn:hover{background:#4338ca}
+.task-saved{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;color:#16a34a;font-size:12px;font-weight:500;text-align:center;display:none}
+.task-item{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.task-item-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px;gap:10px}
+.task-item-title{font-weight:600;font-size:12px;color:#111827}
+.task-item-meta{font-size:10px;color:#9ca3af;margin-top:2px}
+.task-item-desc{font-size:11px;color:#6b7280;line-height:1.5}
+.task-prio-high{background:#fee2e2;color:#ef4444;font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px}
+.task-prio-med{background:#fef3c7;color:#d97706;font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px}
+.task-prio-low{background:#ede9fe;color:#7c3aed;font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px}
+.task-status-open{background:#dbeafe;color:#2563eb;font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px}
+.task-status-done{background:#dcfce7;color:#16a34a;font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px}
 .ss-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
-.ss-card{background:#0f0f14;border:1px solid #1e1e2e;border-radius:8px;overflow:hidden;cursor:pointer;transition:border-color .15s}
-.ss-card:hover{border-color:#3d3d52}
-.ss-lbl{padding:8px 12px;font-size:11px;color:#6b7280;border-bottom:1px solid #1e1e2e;display:flex;align-items:center;justify-content:space-between}
+.ss-card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;cursor:pointer;transition:box-shadow .15s}
+.ss-card:hover{box-shadow:0 2px 12px rgba(0,0,0,.08)}
+.ss-lbl{padding:8px 12px;font-size:11px;color:#6b7280;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;background:#fafafa}
 .ss-img{width:100%;display:block;max-height:180px;object-fit:cover;object-position:top}
-.lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:200;align-items:center;justify-content:center;cursor:zoom-out;padding:20px}
+.lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:200;align-items:center;justify-content:center;cursor:zoom-out;padding:20px}
 .lightbox.open{display:flex}
 .lightbox img{max-width:90vw;max-height:90vh;border-radius:6px;object-fit:contain}
-.ai-block{background:#0d1526;border:1px solid #1e3a5f40;border-radius:8px;padding:14px 16px}
-.ai-lbl{color:#60a5fa;font-size:10px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
-.ai-desc{font-size:12px;color:#e2e2ef;line-height:1.7;margin-bottom:10px}
-.ai-row{display:flex;align-items:flex-start;gap:8px;font-size:11px;padding:5px 0;border-bottom:1px solid #1e3a5f20}
+.ai-block{background:#f8f7ff;border:1px solid #ede9fe;border-radius:8px;padding:14px 16px}
+.ai-lbl{color:#7c3aed;font-size:10px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;font-weight:600}
+.ai-desc{font-size:12px;color:#374151;line-height:1.7;margin-bottom:10px}
+.ai-row{display:flex;align-items:flex-start;gap:8px;font-size:11px;padding:5px 0;border-bottom:1px solid #ede9fe}
 .ai-row:last-child{border:none}
 .ai-ri{flex-shrink:0;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;margin-top:1px}
-.ai-rn{width:180px;flex-shrink:0;color:#e2e2ef}
-.ai-rno{flex:1;color:#8080a0;line-height:1.4}
+.ai-rn{width:180px;flex-shrink:0;color:#374151}
+.ai-rno{flex:1;color:#6b7280;line-height:1.4}
 .pages-row{display:flex;flex-wrap:wrap;gap:8px}
-.page-pill{background:#1a1a2a;border:1px solid #2d2d3f;border-radius:20px;padding:5px 12px;font-size:11px;color:#a0a0b8}
-.hist-item{display:flex;align-items:center;gap:12px;padding:9px 6px;border-bottom:1px solid #1a1a2a;font-size:11px;cursor:pointer;border-radius:6px;transition:background .1s}
+.page-pill{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:20px;padding:5px 12px;font-size:11px;color:#374151}
+.page-pill:hover{background:#ede9fe}
+.hist-item{display:flex;align-items:center;gap:12px;padding:9px 6px;border-bottom:1px solid #f3f4f6;font-size:11px;cursor:pointer;border-radius:6px;transition:background .1s}
 .hist-item:last-child{border:none}
-.hist-item:hover{background:#1a1a2a}
+.hist-item:hover{background:#f9fafb}
 .hist-date{color:#6b7280;width:85px;flex-shrink:0}
-.hist-bar{flex:1;background:#1e1e2e;border-radius:2px;height:4px;overflow:hidden;display:flex}
-.loading{display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:12px;color:#4b5563}
-.spinner{width:32px;height:32px;border:2px solid #1e1e2e;border-top-color:#818cf8;border-radius:50%;animation:spin .8s linear infinite}
+.hist-bar{flex:1;background:#f3f4f6;border-radius:2px;height:4px;overflow:hidden;display:flex}
+.spinner{width:32px;height:32px;border:2px solid #e5e7eb;border-top-color:#4f46e5;border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.no-data{text-align:center;padding:60px 20px;color:#4b5563}
-@media(max-width:640px){
-  .hero{flex-direction:column}.hero-right{align-items:flex-start}
-  .stat-row{grid-template-columns:repeat(2,1fr)}
-  .ss-grid{grid-template-columns:1fr}
-  .wrap{padding:16px 14px 40px}
-  .check-detail{max-width:140px}
-  .ai-rn{width:120px}
-}
+.no-data{text-align:center;padding:60px 20px;color:#9ca3af}
+@media(max-width:640px){.hero{flex-direction:column}.hero-right{align-items:flex-start}.stat-row{grid-template-columns:repeat(2,1fr)}.ss-grid{grid-template-columns:1fr}.wrap{padding:16px 14px 40px}.form-row{grid-template-columns:1fr}.ai-rn{width:120px}}
 </style>
 </head>
 <body>
-<nav class="topnav">
-  <button class="back-btn" onclick="goBack()">
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
-    All Sites
-  </button>
-  <div class="nav-title" id="navName">Loading&#8230;</div>
-  <div class="nav-status" id="navStatus"></div>
-</nav>
-<div id="mainContent"><div class="loading"><div class="spinner"></div><span>Loading site data&#8230;</span></div></div>
+
+<div id="authGate" class="auth-gate">
+  <div class="auth-box">
+    <div class="auth-logo">&#128274; QA Dashboard</div>
+    <div class="auth-sub">Admin access only. Please log in to continue.</div>
+    <label class="auth-label">Username</label>
+    <input type="text" class="auth-input" id="authUser" placeholder="admin" autocomplete="username" />
+    <label class="auth-label">Password</label>
+    <input type="password" class="auth-input" id="authPass" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" />
+    <button class="auth-btn" onclick="doLogin()">Log in</button>
+    <div class="auth-err" id="authErr">Incorrect credentials. Please try again.</div>
+  </div>
+</div>
+<div class="modal-bg" id="taskModal" onclick="if(event.target===this)closeTaskModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div><div class="modal-title">Create Task</div><div class="modal-sub" id="taskModalSub">Action item from QA findings</div></div>
+      <button class="modal-close" onclick="closeTaskModal()">&#10005;</button>
+    </div>
+    <div class="form-group"><label class="form-label">Task Title</label><input type="text" class="form-input" id="taskTitle" placeholder="e.g. Fix broken donate button on mobile" /></div>
+    <div class="form-group"><label class="form-label">What to fix</label><textarea class="form-textarea" id="taskDesc" placeholder="Describe the issue and steps to resolve it..."></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Priority</label><select class="form-select" id="taskPriority"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select></div>
+      <div class="form-group"><label class="form-label">Assigned to</label><input type="text" class="form-input" id="taskAssignee" placeholder="e.g. Dev Team" /></div>
+    </div>
+    <div class="form-group"><label class="form-label">Affected URL</label><input type="text" class="form-input" id="taskUrl" placeholder="https://..." /></div>
+    <div class="task-saved" id="taskSaved">&#10003; Task saved successfully!</div>
+    <button class="task-submit-btn" onclick="submitTask()">Save Task</button>
+  </div>
+</div>
+<div id="mainContent"><div style="display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:12px;color:#9ca3af"><div class="spinner"></div><span>Loading...</span></div></div>
 <div class="lightbox" id="lightbox" onclick="this.classList.remove('open')"><img id="lbImg" src="" alt="Screenshot"></div>
 <script>
 firebase.initializeApp({databaseURL:"https://qa-tracker-73b87-default-rtdb.firebaseio.com"});
 const db=firebase.database();
-const params=new URLSearchParams(location.search);
-const siteId=params.get("id")||params.get("site")||"";
-const dateParam=params.get("date")||"";
-const testType=params.get("type")||"smoke";
-
-function goBack(){
-  window.location.href="index.html"+(dateParam?"?date="+encodeURIComponent(dateParam):"");
+const AUTH_KEY='qa_auth_v1';
+const VALID_USER='admin';
+const VALID_PASS='QAagent2025!';
+function checkAuth(){return sessionStorage.getItem(AUTH_KEY)==='ok';}
+function doLogin(){
+  const u=document.getElementById('authUser').value.trim();
+  const p=document.getElementById('authPass').value;
+  if(u===VALID_USER&&p===VALID_PASS){sessionStorage.setItem(AUTH_KEY,'ok');document.getElementById('authGate').style.display='none';initSite();}
+  else{document.getElementById('authErr').style.display='block';document.getElementById('authPass').value='';}
 }
-function e(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
-function fmt(ms){return ms>=1000?(ms/1000).toFixed(1)+"s":ms+"ms";}
-function fmtDt(ts){try{return new Date(ts).toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});}catch(x){return ts;}}
-
+if(checkAuth()){document.getElementById('authGate').style.display='none';initSite();}
+const params=new URLSearchParams(location.search);
+const siteId=params.get('id')||params.get('site')||'';
+const dateParam=params.get('date')||'';
+const testType=params.get('type')||'smoke';
+let currentSiteName=siteId;
+function goBack(){window.location.href='index.html'+(dateParam?'?date='+encodeURIComponent(dateParam):'');}
+function e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fmt(ms){return ms>=1000?(ms/1000).toFixed(1)+'s':ms+'ms';}
+function fmtDt(ts){try{return new Date(ts).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});}catch(x){return ts;}}
 function statCard(lbl,val,sub,pct,col){
   const w=Math.min(100,Math.max(0,pct||0));
-  return "<div class=\"stat-card\">"
-    +"<div class=\"stat-label\">"+e(lbl)+"</div>"
-    +"<div class=\"stat-value\" style=\"color:"+col+"\">"+e(String(val))+"</div>"
-    +"<div class=\"stat-sub\">"+e(String(sub||""))+"</div>"
-    +"<div class=\"stat-bar\"><div class=\"stat-bar-fill\" style=\"width:"+w+"%;background:"+col+"30\"></div></div>"
-    +"</div>";
+  return '<div class="stat-card"><div class="stat-label">'+e(lbl)+'</div><div class="stat-value" style="color:'+col+'">'+e(String(val))+'</div><div class="stat-sub">'+e(String(sub||''))+'</div><div class="stat-bar"><div class="stat-bar-fill" style="width:'+w+'%;background:'+col+'40"></div></div></div>';
 }
-
 function checkItem(name,detail,pass,url){
-  const icon=pass
-    ?"<div class=\"check-icon ci-pass\">&#10003;</div>"
-    :"<div class=\"check-icon ci-fail\">&#10007;</div>";
-  const urlHtml=url?"<a class=\"check-url-lnk\" href=\""+e(url)+"\" target=\"_blank\">"+e(url)+"</a>":"";
-  return "<div class=\"check-item\">"+icon
-    +"<div class=\"check-name\">"+e(name)+"</div>"
-    +"<div class=\"check-detail\">"+e(detail)+(urlHtml?"<br>"+urlHtml:"")+"</div>"
-    +"</div>";
+  const icon=pass?'<div class="check-icon ci-pass">&#10003;</div>':'<div class="check-icon ci-fail">&#10007;</div>';
+  const urlHtml=url?'<a class="check-url-lnk" href="'+e(url)+'" target="_blank">'+e(url)+'</a>':'';
+  return '<div class="check-item">'+icon+'<div class="check-name">'+e(name)+'</div><div class="check-detail">'+e(detail)+(urlHtml?'<br>'+urlHtml:'')+'</div></div>';
 }
-
-function issueRow(text,url){
-  const lnk=url?"<a class=\"issue-lnk\" href=\""+e(url)+"\" target=\"_blank\">" + e(url)+"</a>":"";
-  return "<div class=\"issue-row\"><span class=\"issue-arr\">&#8594;</span>"
-    +"<div class=\"issue-body\"><div class=\"issue-text\">"+e(text)+"</div>"+lnk+"</div>"
-    +"</div>";
+function getFixAdvice(n){
+  n=(n||'').toLowerCase();
+  if(n.includes('load time')||n.includes('loadtime'))return'Optimise images, enable browser caching, minify JS/CSS, consider a CDN. Target under 3 seconds.';
+  if(n.includes('donate')||n.includes('donation'))return'Test the donation flow end-to-end. Verify the payment gateway is configured and the donate button links to the correct URL.';
+  if(n.includes('mobile'))return'Review responsive CSS breakpoints. Test on real mobile devices. Check font sizes, button tap targets, and horizontal overflow.';
+  if(n.includes('search'))return'Verify the search index is populated and the search API is returning results. Check for JavaScript console errors on the search page.';
+  if(n.includes('header'))return'Inspect the header component for broken links, missing logo, or navigation menu issues.';
+  if(n.includes('http')||n.includes('status'))return'Ensure the server is running and returning HTTP 200. Check for SSL certificate issues or firewall rules.';
+  if(n.includes('content')||n.includes('text'))return'Check the CMS or database for missing content. Ensure all required text blocks and images are populated.';
+  if(n.includes('interactive')||n.includes('button'))return'Inspect all buttons and links for broken href attributes or JavaScript errors. Verify forms are submitting correctly.';
+  if(n.includes('fundrais'))return'Verify fundraising widgets are embedded and loading correctly. Check third-party fundraising platform status.';
+  if(n.includes('title'))return'Update the page title tag in the CMS or HTML to include relevant keywords and the organisation name.';
+  if(n.includes('checkout'))return'Test the full checkout flow. Look for JavaScript errors or broken payment integrations.';
+  return'Investigate the specific check failure. Review the affected page and fix the identified issue, then re-run QA tests to confirm resolution.';
 }
-
-function openLightbox(src){
-  document.getElementById("lbImg").src=src;
-  document.getElementById("lightbox").classList.add("open");
+function openLightbox(src){document.getElementById('lbImg').src=src;document.getElementById('lightbox').classList.add('open');}
+let _taskCtx={};
+function openTaskModal(btn){
+  const title=btn.getAttribute('data-title')||'';
+  const url=btn.getAttribute('data-url')||'';
+  const fix=btn.getAttribute('data-fix')||'';
+  document.getElementById('taskTitle').value=title;
+  document.getElementById('taskDesc').value=fix;
+  document.getElementById('taskUrl').value=url;
+  document.getElementById('taskAssignee').value='';
+  document.getElementById('taskPriority').value='medium';
+  document.getElementById('taskSaved').style.display='none';
+  document.getElementById('taskModalSub').textContent=currentSiteName+(dateParam?' · '+dateParam:'');
+  _taskCtx={title,url,fix,site:siteId,siteName:currentSiteName,date:dateParam};
+  document.getElementById('taskModal').classList.add('open');
 }
-
-async function loadSite(){
-  if(!siteId){
-    document.getElementById("mainContent").innerHTML="<div class=\"no-data wrap\">No site ID provided. <a href=\"index.html\">Back to dashboard</a></div>";
-    return;
-  }
+function closeTaskModal(){document.getElementById('taskModal').classList.remove('open');}
+async function submitTask(){
+  const task={title:document.getElementById('taskTitle').value||_taskCtx.title,description:document.getElementById('taskDesc').value,priority:document.getElementById('taskPriority').value,assignee:document.getElementById('taskAssignee').value,url:document.getElementById('taskUrl').value,site:_taskCtx.site,siteName:_taskCtx.siteName,date:_taskCtx.date,status:'open',createdAt:new Date().toISOString()};
+  try{await db.ref('tasks/'+_taskCtx.site).push(task);document.getElementById('taskSaved').style.display='block';setTimeout(()=>{closeTaskModal();loadTasks(siteId);},1500);}
+  catch(err){alert('Error saving task: '+err.message);}
+}
+async function initSite(){
+  if(!siteId){document.getElementById('mainContent').innerHTML='<div class="no-data wrap">No site ID provided. <a href="index.html">Back to dashboard</a></div>';return;}
   let date=dateParam;
-  if(!date){
-    const sn=await db.ref("autoLatest").get();
-    date=(sn.val()||{}).date||new Date().toISOString().split("T")[0];
-  }
-  const path=testType==="flow"?"flowResults":"autoResults";
-  const sn=await db.ref(path+"/"+date+"/"+siteId).get();
+  if(!date){const sn=await db.ref('autoLatest').get();date=(sn.val()||{}).date||new Date().toISOString().split('T')[0];}
+  const path=testType==='flow'?'flowResults':'autoResults';
+  const sn=await db.ref(path+'/'+date+'/'+siteId).get();
   let data=sn.val();
-  if(!data&&testType==="smoke"){
-    const ls=await db.ref("autoLatest").get();
-    const ld=(ls.val()||{}).date;
-    if(ld&&ld!==date){
-      const s2=await db.ref("autoResults/"+ld+"/"+siteId).get();
-      if(s2.val()){data=s2.val();date=ld;}
-    }
-  }
-  if(!data){
-    document.getElementById("navName").textContent=siteId;
-    document.getElementById("mainContent").innerHTML="<div class=\"no-data wrap\"><p>No test data found for <strong>"+e(siteId)+"</strong> on "+e(date)+".</p><br><a href=\"index.html\">Back to dashboard</a></div>";
-    return;
-  }
-  renderSite(siteId,data,date);
-  loadHistory(siteId);
+  if(!data&&testType==='smoke'){const ls=await db.ref('autoLatest').get();const ld=(ls.val()||{}).date;if(ld&&ld!==date){const s2=await db.ref('autoResults/'+ld+'/'+siteId).get();if(s2.val()){data=s2.val();}}}
+  if(!data){document.getElementById('mainContent').innerHTML='<div class="no-data wrap" style="padding-top:80px"><p style="font-size:16px;font-weight:600;color:#374151;margin-bottom:8px">No data found</p><p style="color:#9ca3af;margin-bottom:16px">No test data for <strong>'+e(siteId)+'</strong> on '+e(date)+'.</p><a href="index.html" style="color:#4f46e5;font-weight:500">&#8592; Back to dashboard</a></div>';return;}
+  renderSite(siteId,data,date);loadTasks(siteId);loadHistory(siteId);
 }
-
 function renderSite(id,d,date){
-  document.title=(d.name||id)+" — QA Dashboard";
-  document.getElementById("navName").textContent=d.name||id;
+  document.title=(d.name||id)+' — QA Dashboard';
+  currentSiteName=d.name||id;
   const hasMajor=d.majorFailures&&d.majorFailures.length>0;
-  const statusBadge=hasMajor
-    ?"<span class=\"badge badge-fail\">&#10007; FAIL</span>"
-    :"<span class=\"badge badge-pass\">&#10003; PASS</span>";
-  document.getElementById("navStatus").innerHTML=statusBadge;
-
+  const statusBadge=hasMajor?'<span class="badge badge-fail">&#10007; FAIL</span>':'<span class="badge badge-pass">&#10003; PASS</span>';
+  const topnav='<nav class="topnav"><button class="back-btn" onclick="goBack()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg> All Sites</button><div class="nav-title">'+e(d.name||id)+'</div><div class="nav-status">'+statusBadge+'</div></nav>';
   const uiArr=d.uiChecks?Object.values(d.uiChecks):[];
   const chkMap=d.checks||{};
   const evArr=d.evidence?Object.values(d.evidence):[];
   const ai=d.aiAnalysis||null;
   const gh=d.githubRun||null;
   const pageUrls=d.pageUrls||{};
-
-  // Counts
   const coreKeys=Object.keys(chkMap);
   const corePass=coreKeys.filter(k=>chkMap[k].pass).length;
   const uiPass=uiArr.filter(c=>c.pass).length;
@@ -206,203 +258,82 @@ function renderSite(id,d,date){
   const totalChks=coreKeys.length+uiArr.length;
   const totalPass=corePass+uiPass;
   const pct=totalChks?Math.round(totalPass/totalChks*100):0;
-
-  let h="<div class=\"wrap\">";
-
-  // Hero
-  h+="<div class=\"hero\">";
-  h+="<div class=\"hero-left\">";
-  h+="<div class=\"hero-title\">"+e(d.name||id)+"</div>";
-  h+="<div class=\"hero-url\"><a href=\""+e(d.url||"")+"\" target=\"_blank\">"+e(d.url||"")+"</a></div>";
-  h+="<div class=\"hero-meta\">";
-  if(d.runAt)h+="<span>&#128336; "+e(fmtDt(d.runAt))+"</span>";
-  if(chkMap.loadTimeMs)h+="<span>&#9889; "+e(fmt(chkMap.loadTimeMs.value))+"</span>";
-  if(chkMap.httpStatus)h+="<span>HTTP "+e(String(chkMap.httpStatus.value))+"</span>";
-  if(gh)h+="<span><a href=\""+e(gh.runUrl)+"\" target=\"_blank\">GitHub Run #"+e(gh.runId)+"</a></span>";
-  h+="</div></div>";
-  h+="<div class=\"hero-right\">"+statusBadge;
-  h+="<div style=\"font-size:11px;color:#4b5563\">"+totalPass+"/"+totalChks+" checks passing</div>";
-  h+="</div></div>";
-
-  // Stats
-  h+="<div class=\"stat-row\">";
-  const pr=pct;
-  const prColor=pr>=80?"#4ade80":pr>=60?"#fbbf24":"#f87171";
-  h+=statCard("Pass Rate",pr+"%",totalPass+"/"+totalChks+" checks",pr,prColor);
-  h+=statCard("Core Checks",corePass+"/"+coreKeys.length,
-    coreKeys.length&&corePass===coreKeys.length?"all clear":(coreKeys.length-corePass)+" failing",
-    coreKeys.length?Math.round(corePass/coreKeys.length*100):0,"#4ade80");
-  h+=statCard("UI Checks",uiPass+"/"+uiArr.length,
-    uiFail.length+" failing",
-    uiArr.length?Math.round(uiPass/uiArr.length*100):0,"#818cf8");
-  h+=statCard("Issues",uiFail.length,
-    uiFail.length===0?"all clear":"failing checks",
-    uiFail.length===0?100:0,"#f87171");
-  h+=statCard("Run Date",date,d.runAt?fmtDt(d.runAt).split(",").pop().trim():"",100,"#60a5fa");
-  h+="</div>";
-
-  // Issues panel (only failing UI checks)
+  let h=topnav+'<div class="wrap">';
+  h+='<div class="hero"><div class="hero-left"><div class="hero-title">'+e(d.name||id)+'</div><div class="hero-url"><a href="'+e(d.url||'')+'" target="_blank">'+e(d.url||'')+'</a></div><div class="hero-meta">';
+  if(d.runAt)h+='<span>&#128336; '+e(fmtDt(d.runAt))+'</span>';
+  if(chkMap.loadTimeMs)h+='<span>&#9889; '+e(fmt(chkMap.loadTimeMs.value))+'</span>';
+  if(chkMap.httpStatus)h+='<span>HTTP '+e(String(chkMap.httpStatus.value))+'</span>';
+  if(gh)h+='<span><a href="'+e(gh.runUrl)+'" target="_blank">GitHub Run #'+e(gh.runId)+'</a></span>';
+  h+='</div></div><div class="hero-right">'+statusBadge+'<div style="font-size:11px;color:#9ca3af">'+totalPass+'/'+totalChks+' checks passing</div></div></div>';
+  const prColor=pct>=80?'#16a34a':pct>=60?'#d97706':'#ef4444';
+  h+='<div class="stat-row">';
+  h+=statCard('Pass Rate',pct+'%',totalPass+'/'+totalChks+' checks',pct,prColor);
+  h+=statCard('Core Checks',corePass+'/'+coreKeys.length,coreKeys.length&&corePass===coreKeys.length?'all clear':(coreKeys.length-corePass)+' failing',coreKeys.length?Math.round(corePass/coreKeys.length*100):0,'#16a34a');
+  h+=statCard('UI Checks',uiPass+'/'+uiArr.length,uiFail.length+' failing',uiArr.length?Math.round(uiPass/uiArr.length*100):0,'#7c3aed');
+  h+=statCard('Issues',uiFail.length,uiFail.length===0?'all clear':'need attention',uiFail.length===0?100:0,'#ef4444');
+  h+=statCard('Run Date',date,d.runAt?fmtDt(d.runAt).split(',').pop().trim():'',100,'#4f46e5');
+  h+='</div>';
+  function issueRowFn(text,url,fixText){
+    const lnk=url?'<a class="issue-lnk" href="'+e(url)+'" target="_blank">'+e(url)+'</a>':'';
+    const fix=fixText?'<div class="issue-fix">&#128295; <strong>How to fix:</strong> '+e(fixText)+'</div>':'';
+    const safeT=e(text);const safeU=e(url||'');const safeF=e(fixText||'');
+    return '<div class="issue-row"><span class="issue-arr">&#8594;</span><div class="issue-body"><div class="issue-text">'+safeT+'</div>'+lnk+fix+'<button class="task-btn" data-title="'+safeT+'" data-url="'+safeU+'" data-fix="'+safeF+'" onclick="openTaskModal(this)">&#10010; Create Task</button></div></div>';
+  }
   if(uiFail.length>0){
-    h+="<div class=\"issues-panel\">";
-    h+="<div class=\"issues-title\">&#9888; "+uiFail.length+" Issue"+(uiFail.length>1?"s":"")+" Found</div>";
-    uiFail.forEach(function(c){
-      // Try to find URL for this check
-      let url="";
-      const nm=(c.name||"").toLowerCase();
-      if(nm.indexOf("search")>-1)url=d.url||"";
-      else if(nm.indexOf("donate")>-1||nm.indexOf("checkout")>-1)url=pageUrls.donate||pageUrls.checkout||"";
-      else if(nm.indexOf("mobile")>-1)url=d.url||"";
-      h+=issueRow(c.name+(c.detail?" — "+c.detail:""),url);
-    });
-    h+="</div>";
+    h+='<div class="issues-panel"><div class="issues-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> '+uiFail.length+' Issue'+(uiFail.length>1?'s':'')+' Found</div>';
+    uiFail.forEach(function(c){let url='';const nm=(c.name||'').toLowerCase();if(nm.includes('search'))url=d.url||'';else if(nm.includes('donate')||nm.includes('checkout'))url=pageUrls.donate||pageUrls.checkout||'';else url=d.url||'';h+=issueRowFn(c.name+(c.detail?' — '+c.detail:''),url,getFixAdvice(c.name));});
+    h+='</div>';
   }
-
-  // Major failures panel
   if(hasMajor){
-    h+="<div class=\"issues-panel\">";
-    h+="<div class=\"issues-title\">&#128308; "+d.majorFailures.length+" Major Failure"+(d.majorFailures.length>1?"s":"")+"</div>";
-    d.majorFailures.forEach(function(f){h+=issueRow(f,d.url||"");});
-    h+="</div>";
+    h+='<div class="issues-panel" style="background:#fff5f5;border-color:#fca5a5"><div class="issues-title" style="color:#dc2626">&#128308; '+d.majorFailures.length+' Major Failure'+(d.majorFailures.length>1?'s':'')+'</div>';
+    d.majorFailures.forEach(function(f){h+=issueRowFn(f,d.url||'',getFixAdvice(f));});
+    h+='</div>';
   }
-
-  // Pages Tested
+  h+='<div id="tasksSection"></div>';
   const pageKeys=Object.keys(pageUrls);
-  if(pageKeys.length>0){
-    h+="<div class=\"section\">";
-    h+="<div class=\"section-hdr\"><div class=\"section-title\">Pages Tested</div><span class=\"badge badge-info\">"+pageKeys.length+" pages</span></div>";
-    h+="<div class=\"section-body\"><div class=\"pages-row\">";
-    pageKeys.forEach(function(k){
-      const u=pageUrls[k];
-      h+="<div class=\"page-pill\"><a href=\""+e(u)+"\" target=\"_blank\">"+e(k)+"</a></div>";
-    });
-    h+="</div></div></div>";
-  }
-
-  // Core Checks
+  if(pageKeys.length>0){h+='<div class="section"><div class="section-hdr"><div class="section-title">Pages Tested</div><span class="badge badge-info">'+pageKeys.length+' pages</span></div><div class="section-body"><div class="pages-row">';pageKeys.forEach(function(k){h+='<div class="page-pill"><a href="'+e(pageUrls[k])+'" target="_blank">'+e(k)+'</a></div>';});h+='</div></div></div>';}
   if(coreKeys.length>0){
-    h+="<div class=\"section\">";
-    h+="<div class=\"section-hdr\"><div class=\"section-title\">Core Checks</div><span class=\"badge "+(corePass===coreKeys.length?"badge-pass":"badge-fail")+"\">"+corePass+"/"+coreKeys.length+"</span></div>";
-    h+="<div class=\"section-body\">";
-    const lblMap={httpStatus:"HTTP Status",pageTitle:"Page Title",hasContent:"Page Content",noErrorContent:"No Error Text",h1Content:"H1 Heading",hasInteractiveElements:"Interactive Elements",hasFundraisingContent:"Fundraising Content",loadTimeMs:"Load Time",hasNavigation:"Navigation"};
-    coreKeys.forEach(function(k){
-      const c=chkMap[k];
-      const lbl=lblMap[k]||k;
-      let detail="";
-      if(k==="loadTimeMs")detail=fmt(c.value);
-      else if(k==="httpStatus")detail="HTTP "+c.value;
-      else if(c.value!==undefined&&c.value!==null)detail=String(c.value).slice(0,60);
-      h+=checkItem(lbl,detail,c.pass,c.pass?"":(d.url||""));
-    });
-    h+="</div></div>";
+    const lblMap={httpStatus:'HTTP Status',pageTitle:'Page Title',hasContent:'Page Content',noErrorContent:'No Error Text',h1Content:'H1 Heading',hasInteractiveElements:'Interactive Elements',hasFundraisingContent:'Fundraising Content',loadTimeMs:'Load Time',hasNavigation:'Navigation'};
+    h+='<div class="section"><div class="section-hdr"><div class="section-title">Core Checks</div><span class="badge '+(corePass===coreKeys.length?'badge-pass':'badge-fail')+'">'+corePass+'/'+coreKeys.length+'</span></div><div class="section-body">';
+    coreKeys.forEach(function(k){const c=chkMap[k];let detail='';if(k==='loadTimeMs')detail=fmt(c.value);else if(k==='httpStatus')detail='HTTP '+c.value;else if(c.value!==undefined&&c.value!==null)detail=String(c.value).slice(0,60);h+=checkItem(lblMap[k]||k,detail,c.pass,c.pass?'':(d.url||''));});
+    h+='</div></div>';
   }
-
-  // UI Checks (all)
   if(uiArr.length>0){
-    const coreUI=uiArr.filter(function(c){return !c.name.startsWith("[");});
-    const extraUI=uiArr.filter(function(c){return c.name.startsWith("[");});
-
-    if(coreUI.length>0){
-      const coreUIPass=coreUI.filter(function(c){return c.pass;}).length;
-      h+="<div class=\"section\">";
-      h+="<div class=\"section-hdr\"><div class=\"section-title\">UI &amp; Content Checks</div><span class=\"badge "+(coreUIPass===coreUI.length?"badge-pass":"badge-warn")+"\">"+coreUIPass+"/"+coreUI.length+"</span></div>";
-      h+="<div class=\"section-body\">";
-      coreUI.forEach(function(c){
-        // Get URL for this check
-        const nm=c.name.toLowerCase();
-        let url=d.url||"";
-        if(nm.indexOf("donate")>-1||nm.indexOf("checkout")>-1)url=pageUrls.donate||pageUrls.checkout||d.url||"";
-        h+=checkItem(c.name,c.detail||"",c.pass,c.pass?"":url);
-      });
-      h+="</div></div>";
-    }
-
-    if(extraUI.length>0){
-      const extraUIPass=extraUI.filter(function(c){return c.pass;}).length;
-      h+="<div class=\"section\">";
-      h+="<div class=\"section-hdr\"><div class=\"section-title\">Mobile, Desktop &amp; Search Checks</div><span class=\"badge "+(extraUIPass===extraUI.length?"badge-pass":"badge-warn")+"\">"+extraUIPass+"/"+extraUI.length+"</span></div>";
-      h+="<div class=\"section-body\">";
-      extraUI.forEach(function(c){
-        let url=d.url||"";
-        const nm=c.name.toLowerCase();
-        if(nm.indexOf("search")>-1)url=d.url||"";
-        h+=checkItem(c.name,c.detail||"",c.pass,c.pass?"":url);
-      });
-      h+="</div></div>";
-    }
+    const coreUI=uiArr.filter(function(c){return!c.name.startsWith('[');});
+    const extraUI=uiArr.filter(function(c){return c.name.startsWith('[');});
+    if(coreUI.length>0){const cp=coreUI.filter(function(c){return c.pass;}).length;h+='<div class="section"><div class="section-hdr"><div class="section-title">UI &amp; Content Checks</div><span class="badge '+(cp===coreUI.length?'badge-pass':'badge-warn')+'">'+cp+'/'+coreUI.length+'</span></div><div class="section-body">';coreUI.forEach(function(c){const nm=c.name.toLowerCase();let url=d.url||'';if(nm.includes('donate')||nm.includes('checkout'))url=pageUrls.donate||pageUrls.checkout||d.url||'';h+=checkItem(c.name,c.detail||'',c.pass,c.pass?'':url);});h+='</div></div>';}
+    if(extraUI.length>0){const ep=extraUI.filter(function(c){return c.pass;}).length;h+='<div class="section"><div class="section-hdr"><div class="section-title">Mobile, Desktop &amp; Search Checks</div><span class="badge '+(ep===extraUI.length?'badge-pass':'badge-warn')+'">'+ep+'/'+extraUI.length+'</span></div><div class="section-body">';extraUI.forEach(function(c){h+=checkItem(c.name,c.detail||'',c.pass,c.pass?'':(d.url||''));});h+='</div></div>';}
   }
-
-  // AI Analysis
-  if(ai){
-    h+="<div class=\"section\">";
-    h+="<div class=\"section-hdr\"><div class=\"section-title\">AI Visual Analysis</div><span class=\"badge "+(ai.passing?"badge-pass":"badge-fail")+"\">"+(ai.passing?"Passing":"Issues found")+"</span></div>";
-    h+="<div class=\"section-body\"><div class=\"ai-block\">";
-    h+="<div class=\"ai-lbl\">&#129302; AI Assessment</div>";
-    if(ai.pageDescription)h+="<div class=\"ai-desc\">"+e(ai.pageDescription)+"</div>";
-    if(ai.visualChecks&&ai.visualChecks.length>0){
-      ai.visualChecks.forEach(function(vc){
-        const ico=vc.pass
-          ?"<div class=\"ai-ri ci-pass\">&#10003;</div>"
-          :"<div class=\"ai-ri ci-fail\">&#10007;</div>";
-        h+="<div class=\"ai-row\">"+ico
-          +"<div class=\"ai-rn\">"+e(vc.item||"")+"</div>"
-          +"<div class=\"ai-rno\">"+e(vc.note||"")+"</div>"
-          +"</div>";
-      });
-    }
-    h+="</div></div></div>";
-  }
-
-  // Screenshots
-  if(evArr.length>0){
-    h+="<div class=\"section\">";
-    h+="<div class=\"section-hdr\"><div class=\"section-title\">Screenshots</div><span class=\"badge badge-info\">"+evArr.length+"</span></div>";
-    h+="<div class=\"section-body\"><div class=\"ss-grid\">";
-    evArr.forEach(function(ev){
-      const src="data:image/jpeg;base64,"+ev.screenshot;
-      const urlLink=ev.url?"<a href=\""+e(ev.url)+"\" target=\"_blank\">"+e(ev.url)+"</a>":"";
-      h+="<div class=\"ss-card\" onclick=\"openLightbox('"+src.slice(0,30)+"')\">";
-      h+="<div class=\"ss-lbl\">"+e(ev.label||"Screenshot")+(urlLink?" &bull; "+urlLink:"")+"</div>";
-      h+="<img class=\"ss-img\" src=\""+src+"\" alt=\""+e(ev.label||"Screenshot")+"\" onclick=\"event.stopPropagation();openLightbox(this.src)\">";
-      h+="</div>";
-    });
-    h+="</div></div></div>";
-  }
-
-  // History placeholder
-  h+="<div class=\"section\">";
-  h+="<div class=\"section-hdr\"><div class=\"section-title\">Recent Runs</div></div>";
-  h+="<div class=\"section-body\" id=\"histBody\"><div style=\"color:#4b5563;font-size:12px\">Loading history&#8230;</div></div>";
-  h+="</div>";
-
-  h+="</div>"; // end .wrap
-  document.getElementById("mainContent").innerHTML=h;
+  if(ai){h+='<div class="section"><div class="section-hdr"><div class="section-title">AI Visual Analysis</div><span class="badge '+(ai.passing?'badge-pass':'badge-fail')+'">'+(ai.passing?'Passing':'Issues found')+'</span></div><div class="section-body"><div class="ai-block"><div class="ai-lbl">&#129302; AI Assessment</div>';if(ai.pageDescription)h+='<div class="ai-desc">'+e(ai.pageDescription)+'</div>';if(ai.visualChecks&&ai.visualChecks.length>0){ai.visualChecks.forEach(function(vc){const ico=vc.pass?'<div class="ai-ri ci-pass">&#10003;</div>':'<div class="ai-ri ci-fail">&#10007;</div>';h+='<div class="ai-row">'+ico+'<div class="ai-rn">'+e(vc.item||'')+'</div><div class="ai-rno">'+e(vc.note||'')+'</div></div>';});}h+='</div></div></div>';}
+  if(evArr.length>0){h+='<div class="section"><div class="section-hdr"><div class="section-title">Screenshots</div><span class="badge badge-info">'+evArr.length+'</span></div><div class="section-body"><div class="ss-grid">';evArr.forEach(function(ev){const src='data:image/jpeg;base64,'+ev.screenshot;const urlLink=ev.url?'<a href="'+e(ev.url)+'" target="_blank" style="font-size:10px;color:#4f46e5">'+e(ev.url)+'</a>':'';h+='<div class="ss-card"><div class="ss-lbl">'+e(ev.label||'Screenshot')+(urlLink?' &bull; '+urlLink:'')+'</div><img class="ss-img" src="'+src+'" alt="'+e(ev.label||'Screenshot')+'" onclick="openLightbox(this.src)"></div>';});h+='</div></div></div>';}
+  h+='<div class="section"><div class="section-hdr"><div class="section-title">Recent Runs</div></div><div class="section-body" id="histBody"><div style="color:#9ca3af;font-size:12px">Loading...</div></div></div>';
+  h+='</div>';
+  document.getElementById('mainContent').innerHTML=h;
 }
-
-async function loadHistory(id){
-  const sn=await db.ref("autoSummary").limitToLast(14).get();
-  const data=sn.val()||{};
-  const rows=Object.entries(data).reverse();
-  const el=document.getElementById("histBody");
-  if(!el)return;
-  if(rows.length===0){el.innerHTML="<div style=\"color:#4b5563;font-size:12px\">No history yet</div>";return;}
-  let hh="";
-  rows.forEach(function(kv){
-    const dt=kv[0];const s=kv[1];
-    const pass=s.passed||0;const tot=s.totalSites||20;
-    const pct=Math.round(pass/tot*100);
-    hh+="<div class=\"hist-item\" onclick=\"window.location.href='site.html?id="+id+"&date="+dt+"'\">";
-    hh+="<div class=\"hist-date\">"+e(dt)+"</div>";
-    hh+="<div class=\"hist-bar\">";
-    hh+="<div style=\"width:"+pct+"%;background:#4ade8030;height:100%\"></div>";
-    hh+="<div style=\"width:"+(100-pct)+"%;background:"+(100-pct>0?"#f8717130":"#1e1e2e")+";height:100%\"></div>";
-    hh+="</div>";
-    hh+="<span class=\"badge "+(s.failed?"badge-fail":"badge-pass")+"\">"+(s.failed?s.failed+" failed":"All passed")+"</span>";
-    hh+="</div>";
+async function loadTasks(id){
+  const sn=await db.ref('tasks/'+id).get();const data=sn.val()||{};
+  const tasks=Object.entries(data).map(([k,v])=>({id:k,...v})).reverse();
+  const el=document.getElementById('tasksSection');if(!el)return;
+  if(tasks.length===0){el.innerHTML='';return;}
+  let h='<div class="section"><div class="section-hdr"><div class="section-title">&#9989; Open Tasks ('+tasks.length+')</div></div><div class="section-body">';
+  tasks.forEach(function(t){
+    const prioClass=t.priority==='high'?'task-prio-high':t.priority==='low'?'task-prio-low':'task-prio-med';
+    const statusClass=t.status==='done'?'task-status-done':'task-status-open';
+    h+='<div class="task-item"><div class="task-item-head"><div><div class="task-item-title">'+e(t.title||'Untitled task')+'</div><div class="task-item-meta">'+(t.siteName||siteId)+' &bull; '+(t.date||'')+(t.assignee?' &bull; '+e(t.assignee):'')+'</div></div><div style="display:flex;gap:5px;flex-shrink:0"><span class="'+prioClass+'">'+e(t.priority||'medium')+'</span><span class="'+statusClass+'">'+e(t.status||'open')+'</span></div></div>';
+    if(t.description)h+='<div class="task-item-desc">'+e(t.description)+'</div>';
+    if(t.url)h+='<div style="margin-top:5px"><a href="'+e(t.url)+'" target="_blank" style="font-size:10px;color:#4f46e5">'+e(t.url)+'</a></div>';
+    h+='</div>';
   });
+  h+='</div></div>';el.innerHTML=h;
+}
+async function loadHistory(id){
+  const sn=await db.ref('autoSummary').limitToLast(14).get();const data=sn.val()||{};
+  const rows=Object.entries(data).reverse();const el=document.getElementById('histBody');if(!el)return;
+  if(rows.length===0){el.innerHTML='<div style="color:#9ca3af;font-size:12px">No history yet</div>';return;}
+  let hh='';
+  rows.forEach(function(kv){const dt=kv[0];const s=kv[1];const pass=s.passed||0;const tot=s.totalSites||20;const pct=Math.round(pass/tot*100);hh+='<div class="hist-item" onclick="window.location.href='site.html?id='+id+'&date='+dt+''"><div class="hist-date">'+e(dt)+'</div><div class="hist-bar"><div style="width:'+pct+'%;background:#22c55e40;height:100%"></div><div style="width:'+(100-pct)+'%;background:'+(100-pct>0?'#ef444430':'#f3f4f6')+';height:100%"></div></div><span class="badge '+(s.failed?'badge-fail':'badge-pass')+'">'+(s.failed?s.failed+' failed':'All passed')+'</span></div>';});
   el.innerHTML=hh;
 }
-
-loadSite();
 </script>
 </body>
 </html>
