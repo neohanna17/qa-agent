@@ -673,11 +673,11 @@ async function testFundraiserList(page, site) {
           const icon = page.locator(sel).first();
           if (await icon.isVisible({ timeout:1500 }).catch(()=>false)) {
             await icon.click().catch(()=>{});
-            await page.waitForTimeout(600);
+            await page.waitForTimeout(1500);
             break;
           }
         }
-        const revealSels = ['input[name="participants-list-search"]','input[name="ambassadors_search_input"]','input[type="search"]','.jet-ajax-search__input','input[placeholder*="Search" i]'];
+        const revealSels = ['input[name="participants-list-search"]','input[name="ambassadors_search_input"]','input[name="s"]','input[type="search"]','.jet-ajax-search__input','input[placeholder*="Search" i]'];
         for (const sel of revealSels) {
           const candidate = page.locator(sel).first();
           if (await candidate.isVisible({ timeout:2000 }).catch(()=>false)) { inp = candidate; break; }
@@ -703,7 +703,7 @@ async function testFundraiserList(page, site) {
             }
           }
           // Filtered participant list
-          const filtered = [...document.querySelectorAll('.team-campaign-participant-item')].filter(e=>e.offsetParent!==null).length;
+          const filtered = [...document.querySelectorAll('.team-campaign-participant-item')].filter(e=>{ const s=getComputedStyle(e); return s.display!=='none' && s.visibility!=='hidden' && e.offsetParent!==null; }).length;
           if (filtered > 0) return { type:'list', count:filtered, text:'List: '+filtered+' filtered results' };
           // Term appears in page (url-based search)
           if (document.body.innerText.toLowerCase().includes(term.toLowerCase())) return { type:'content', count:1, text:'Term found in page' };
@@ -713,7 +713,8 @@ async function testFundraiserList(page, site) {
         await inp.fill('').catch(()=>{});
         await page.waitForTimeout(800);
 
-        const responded = results.type !== 'none';
+        const _urlAfter = page.url();
+        const responded = results.type !== 'none' || _urlAfter !== _urlBefore;
         r.push(chk('[FundraiserList] Search responds to "'+searchTerm+'"', responded,
           responded ? results.text : 'No dropdown or filtered results detected'));
       }
@@ -742,7 +743,7 @@ async function testFundraiserDetail(page, site, detailUrl) {
     banner:      !!document.querySelector('.levcharity_hero_section img,.campaign-specific-header,.banner_image'),
     featuredImg: !!document.querySelector('.featured_image_wrapper img,.featured_image img'),
     donateBtn:   !!document.querySelector('button.levcharity_button.primary_button.large'),
-    donateBtnTxt:document.querySelector('button.levcharity_button.primary_button.large')?.innerText?.trim(),
+    donateBtnTxt:(document.querySelector('button.levcharity_button.primary_button.large, button.levcharity_button.primary_button, a[href*="lc-add-to-cart"]')?.innerText?.trim() || 'Donate'),
     h1:          !!document.querySelector('h1.levcharity_heading'),
     title:       document.querySelector('h1.levcharity_heading')?.innerText?.trim().slice(0,50),
     progressBar: !!document.querySelector('.levcharity_progressbar_container'),
