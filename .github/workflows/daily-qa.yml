@@ -2,7 +2,7 @@ name: Daily QA Smoke Tests
 
 on:
   schedule:
-    - cron: '0 6 * * *'   # Daily smoke test — 6am UTC (8am Israel / 9am South Africa)
+    - cron: '0 5 * * *'   # Daily smoke test — 5am UTC (8am Israel IDT/UTC+3)
     - cron: '0 7 * * 1'   # Weekly flow test — Mondays 7am UTC
   workflow_dispatch:
     inputs:
@@ -20,7 +20,7 @@ jobs:
     name: Smoke Tests
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    if: github.event_name == 'schedule' && github.event.schedule == '0 6 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type != 'flow')
+    if: github.event_name == 'schedule' && github.event.schedule == '0 5 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type != 'flow')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
