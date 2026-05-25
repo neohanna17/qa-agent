@@ -348,7 +348,7 @@ async function loadHistory(){
   el.innerHTML=rows.map(([date,s])=>{
     const pass=s.passed||0;const fail=s.failed||0;const total=s.totalSites||20;
     const pct=Math.round(pass/total*100);
-    return '<div class="history-row" onclick="di.value=''+date+'';loadDate()">'+
+    return '<div class="history-row" onclick="di.value=date;loadDate()">'+
       '<div class="history-date">'+date+'</div>'+
       '<div class="history-bar">'+
       '<div class="h-seg" style="width:'+pct+'%;background:#22c55e40;min-width:'+(pass?4:0)+'px"></div>'+
