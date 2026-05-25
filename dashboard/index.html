@@ -163,8 +163,14 @@ const db=firebase.database();
 
 /* ===== AUTH ===== */
 const AUTH_KEY='qa_auth_v1';
-const VALID_USER='admin';
-const VALID_PASS='QAagent2025!';
+const VALID_USERS=[
+  {u:'hanna@levcharity.com',p:'LevQA2025!'},
+  {u:'alisa@levcharity.com',p:'LevQA2025!'},
+  {u:'sona@levcharity.com',p:'LevQA2025!'},
+  {u:'yervand@leverage.it',p:'LevQA2025!'},
+  {u:'aviva@leverage.it',p:'LevQA2025!'},
+  {u:'admin',p:'LevQA2025!'}
+];
 
 function checkAuth(){
   return sessionStorage.getItem(AUTH_KEY)==='ok';
@@ -172,7 +178,7 @@ function checkAuth(){
 function doLogin(){
   const u=document.getElementById('authUser').value.trim();
   const p=document.getElementById('authPass').value;
-  if(u===VALID_USER&&p===VALID_PASS){
+  if(VALID_USERS.some(x=>x.u===u&&x.p===p)){
     sessionStorage.setItem(AUTH_KEY,'ok');
     document.getElementById('authGate').style.display='none';
     document.getElementById('app').style.display='block';
