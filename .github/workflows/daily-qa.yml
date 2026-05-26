@@ -20,7 +20,9 @@ jobs:
     name: Smoke Tests
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    if: github.event_name == 'schedule' && github.event.schedule == '0 5 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type != 'flow')
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 5 * * *') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type != 'flow')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,7 +40,9 @@ jobs:
     name: Flow Tests
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    if: github.event_name == 'schedule' && github.event.schedule == '0 7 * * 1' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'flow')
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 7 * * 1') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'flow')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
