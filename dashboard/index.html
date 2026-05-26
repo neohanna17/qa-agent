@@ -147,7 +147,6 @@ const VALID_USERS=[
   {u:'admin',p:'LevQA2025!'}
 ];
 function checkAuth(){return sessionStorage.getItem(AUTH_KEY)==='ok';}
-function currentUser(){return sessionStorage.getItem(AUTH_USER_KEY)||'team';}
 function doLogin(){
   const u=document.getElementById('authUser').value.trim();
   const p=document.getElementById('authPass').value;
@@ -287,6 +286,10 @@ function goToSite(site){
   const date=document.getElementById('dateInput').value||currentDate||'';
   window.location.href='site.html?id='+site.id+(date?'&date='+encodeURIComponent(date):'');
 }
+function pickDate(el){
+  document.getElementById('dateInput').value=el.getAttribute('data-date');
+  loadDate();
+}
 async function loadHistory(){
   const snap=await db.ref('autoSummary').limitToLast(14).get();
   const data=snap.val()||{};
@@ -296,7 +299,7 @@ async function loadHistory(){
   el.innerHTML=rows.map(([date,s])=>{
     const pass=s.passed||0;const fail=s.failed||0;const total=s.totalSites||20;
     const pct=Math.round(pass/total*100);
-    return '<div class="history-row" onclick="document.getElementById('dateInput').value=''+date+'';loadDate()">'+
+    return '<div class="history-row" data-date="'+date+'" onclick="pickDate(this)">'+
       '<div class="history-date">'+date+'</div>'+
       '<div class="history-bar">'+
       '<div class="h-seg" style="width:'+pct+'%;background:#22c55e40;min-width:'+(pass?4:0)+'px"></div>'+
