@@ -11,37 +11,13 @@ on:
         required: false
         default: ''
       test_type:
-        description: 'Test type: smoke or flow (default: smoke)'
+        description: 'Test type: smoke or flow'
         required: false
         default: 'smoke'
 
 jobs:
-  smoke-test:
-    name: Smoke Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '20' }
-      - run: npm install
-      - run: npx playwright install chromium --with-deps
-      - name: Run smoke tests
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
-          SINGLE_SITE: ${{ github.event.inputs.site_id || '' }}
-          SCHEDULE: ${{ github.event.schedule || '' }}
-          TEST_TYPE: ${{ github.event.inputs.test_type || 'smoke' }}
-        run: |
-          if [ "$TEST_TYPE" = "flow" ] && [ "$SCHEDULE" != "0 5 * * *" ]; then
-            echo "Skipping smoke tests — test_type is flow"
-          else
-            node scripts/smoke-test.js
-          fi
-
-  flow-test:
-    name: Flow Tests
+  qa-tests:
+    name: QA Tests
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -50,15 +26,22 @@ jobs:
         with: { node-version: '20' }
       - run: npm install
       - run: npx playwright install chromium --with-deps
+
+      - name: Run smoke tests
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
+          SINGLE_SITE: ${{ github.event.inputs.site_id || '' }}
+        run: node scripts/smoke-test.js
+        if: >-
+          github.event.schedule == '0 5 * * *' ||
+          github.event_name == 'workflow_dispatch' && github.event.inputs.test_type != 'flow'
+
       - name: Run flow tests
         env:
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
           SINGLE_SITE: ${{ github.event.inputs.site_id || '' }}
-          SCHEDULE: ${{ github.event.schedule || '' }}
-          TEST_TYPE: ${{ github.event.inputs.test_type || 'smoke' }}
-        run: |
-          if [ "$TEST_TYPE" = "flow" ] || [ "$SCHEDULE" = "0 7 * * 1" ]; then
-            node scripts/flow-test.js
-          else
-            echo "Skipping flow tests — test_type is smoke"
-          fi
+        run: node scripts/flow-test.js
+        if: >-
+          github.event.schedule == '0 7 * * 1' ||
+          github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'flow'
