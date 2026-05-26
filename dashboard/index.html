@@ -12,8 +12,6 @@
 body{background:#f5f6fa;color:#111827;font-family:Inter,system-ui,sans-serif;font-size:13px;min-height:100vh}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:#f0f0f5}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:3px}
 a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
-
-/* AUTH */
 .auth-gate{position:fixed;inset:0;background:#f5f6fa;display:flex;align-items:center;justify-content:center;z-index:1000}
 .auth-box{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:40px;width:360px;box-shadow:0 4px 24px rgba(0,0,0,.07)}
 .auth-logo{font-size:20px;font-weight:700;color:#111827;margin-bottom:6px}
@@ -25,8 +23,6 @@ a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
 .auth-btn:hover{background:#4338ca}
 .auth-err{color:#ef4444;font-size:12px;margin-top:10px;text-align:center;display:none}
 .auth-hint{color:#9ca3af;font-size:11px;margin-top:12px;text-align:center}
-
-/* LAYOUT */
 .app{display:none}
 .topbar{background:#fff;border-bottom:1px solid #e5e7eb;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;position:sticky;top:0;z-index:50}
 .title{font-size:15px;font-weight:700;color:#111827}
@@ -35,22 +31,16 @@ a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
 .logout-btn{background:transparent;border:1px solid #e5e7eb;color:#6b7280;border-radius:6px;padding:5px 12px;font-family:inherit;font-size:11px;cursor:pointer}
 .logout-btn:hover{border-color:#9ca3af;color:#374151}
 .wrap{max-width:1100px;margin:0 auto;padding:24px 20px}
-
-/* CONTROLS */
 .controls{display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
 .date-input{background:#fff;border:1px solid #d1d5db;color:#111827;border-radius:7px;padding:6px 10px;font-family:inherit;font-size:12px;outline:none}
 .date-input:focus{border-color:#4f46e5}
 .btn{background:#fff;border:1px solid #d1d5db;color:#374151;border-radius:7px;padding:6px 13px;font-family:inherit;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:5px}
 .btn:hover{border-color:#9ca3af;color:#111827}
-
-/* STATS */
 .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:22px}
 @media(max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
 .stat{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px}
 .stat-l{color:#9ca3af;font-size:10px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
 .stat-v{font-size:22px;font-weight:700;color:#111827}
-
-/* ALERT / ALL CLEAR */
 .alert-box{background:#fff5f5;border:1px solid #fecaca;border-radius:10px;padding:16px 20px;margin-bottom:20px}
 .alert-title{color:#ef4444;font-weight:600;font-size:13px;margin-bottom:10px}
 .failure-item{border-left:2px solid #ef4444;padding:6px 0 6px 12px;margin-bottom:8px}
@@ -58,8 +48,6 @@ a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
 .failure-url{color:#9ca3af;font-size:10px;margin-bottom:4px}
 .failure-issue{color:#ef4444;font-size:11px;display:flex;gap:6px;margin-bottom:2px}
 .all-clear{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:13px 18px;margin-bottom:20px;display:flex;align-items:center;gap:10px;color:#16a34a;font-size:12px;font-weight:500}
-
-/* SITE GRID */
 .sites{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:10px}
 .site-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px;cursor:pointer;transition:box-shadow .15s,border-color .15s}
 .site-card:hover{border-color:#4f46e5;box-shadow:0 2px 12px rgba(79,70,229,.08)}
@@ -71,15 +59,12 @@ a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
 .badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:12px;white-space:nowrap}
 .badge-pass{background:#dcfce7;color:#16a34a}
 .badge-fail{background:#fee2e2;color:#ef4444}
-.badge-warn{background:#fef3c7;color:#d97706}
 .badge-muted{background:#f3f4f6;color:#9ca3af}
 .site-checks{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:7px}
 .check-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
 .site-ai{font-size:10px;color:#6b7280;line-height:1.5;margin-top:5px;padding-top:5px;border-top:1px solid #f3f4f6}
 .site-issues{margin-top:6px}
 .site-issue{font-size:10px;color:#ef4444;line-height:1.5;display:flex;gap:4px}
-
-/* HISTORY */
 .history{margin-top:24px;padding-top:18px;border-top:1px solid #e5e7eb}
 .history-title{color:#9ca3af;font-size:10px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px}
 .history-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:11px;cursor:pointer}
@@ -87,8 +72,6 @@ a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
 .history-date{color:#6b7280;width:90px;flex-shrink:0}
 .history-bar{flex:1;display:flex;gap:3px}
 .h-seg{height:4px;border-radius:1px}
-
-/* LOADING */
 .loader{display:inline-block;width:10px;height:10px;border:1.5px solid #e5e7eb;border-top-color:#4f46e5;border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading-overlay{position:fixed;inset:0;background:rgba(245,246,250,.85);display:flex;align-items:center;justify-content:center;z-index:200;font-size:12px;color:#6b7280;gap:10px}
@@ -99,25 +82,20 @@ a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
 </style>
 </head>
 <body>
-
-<!-- AUTH GATE -->
 <div id="authGate" class="auth-gate">
   <div class="auth-box">
-    <div class="auth-logo">🔒 QA Dashboard</div>
-    <div class="auth-sub">Admin access only. Please log in to continue.</div>
-    <label class="auth-label">Username</label>
-    <input type="text" class="auth-input" id="authUser" placeholder="admin" autocomplete="username" />
+    <div class="auth-logo">&#128274; QA Dashboard</div>
+    <div class="auth-sub">Lev Charity QA team access.</div>
+    <label class="auth-label">Username / Email</label>
+    <input type="text" class="auth-input" id="authUser" placeholder="your@email.com" autocomplete="username" />
     <label class="auth-label">Password</label>
-    <input type="password" class="auth-input" id="authPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" />
+    <input type="password" class="auth-input" id="authPass" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" />
     <button class="auth-btn" onclick="doLogin()">Log in</button>
     <div class="auth-err" id="authErr">Incorrect credentials. Please try again.</div>
     <div class="auth-hint">Contact your QA team for access.</div>
   </div>
 </div>
-
 <div id="loadingOverlay" class="loading-overlay" style="display:none"><div class="loader"></div> Loading results…</div>
-
-<!-- MAIN APP -->
 <div id="app" class="app">
   <div class="topbar">
     <div>
@@ -135,7 +113,6 @@ a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
       <button class="logout-btn" onclick="doLogout()">Log out</button>
     </div>
   </div>
-
   <div class="wrap">
     <div class="stats">
       <div class="stat"><div class="stat-l">sites tested</div><div class="stat-v" id="statTotal">—</div></div>
@@ -156,13 +133,11 @@ a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
     </div>
   </div>
 </div>
-
 <script>
 firebase.initializeApp({databaseURL:"https://qa-tracker-73b87-default-rtdb.firebaseio.com"});
 const db=firebase.database();
-
-/* ===== AUTH ===== */
 const AUTH_KEY='qa_auth_v1';
+const AUTH_USER_KEY='qa_auth_user';
 const VALID_USERS=[
   {u:'hanna@levcharity.com',p:'LevQA2025!'},
   {u:'alisa@levcharity.com',p:'LevQA2025!'},
@@ -171,15 +146,14 @@ const VALID_USERS=[
   {u:'aviva@leverage.it',p:'LevQA2025!'},
   {u:'admin',p:'LevQA2025!'}
 ];
-
-function checkAuth(){
-  return sessionStorage.getItem(AUTH_KEY)==='ok';
-}
+function checkAuth(){return sessionStorage.getItem(AUTH_KEY)==='ok';}
+function currentUser(){return sessionStorage.getItem(AUTH_USER_KEY)||'team';}
 function doLogin(){
   const u=document.getElementById('authUser').value.trim();
   const p=document.getElementById('authPass').value;
   if(VALID_USERS.some(x=>x.u===u&&x.p===p)){
     sessionStorage.setItem(AUTH_KEY,'ok');
+    sessionStorage.setItem(AUTH_USER_KEY,u);
     document.getElementById('authGate').style.display='none';
     document.getElementById('app').style.display='block';
     initApp();
@@ -188,17 +162,12 @@ function doLogin(){
     document.getElementById('authPass').value='';
   }
 }
-function doLogout(){
-  sessionStorage.removeItem(AUTH_KEY);
-  location.reload();
-}
+function doLogout(){sessionStorage.removeItem(AUTH_KEY);sessionStorage.removeItem(AUTH_USER_KEY);location.reload();}
 if(checkAuth()){
   document.getElementById('authGate').style.display='none';
   document.getElementById('app').style.display='block';
   initApp();
 }
-
-/* ===== APP ===== */
 const SITES=[
   {id:'pantry',name:'Pantry Packers',url:'https://give.pantrypackers.org/',color:'#b45309'},
   {id:'israelthon',name:'Israelthon',url:'https://israelthon.org/',color:'#2563eb'},
@@ -219,21 +188,16 @@ const SITES=[
   {id:'nahal',name:'Nahal Haredi',url:'https://give.nahalharedi.org/',color:'#15803d'},
   {id:'r2bo',name:'Race to Bais Olami',url:'https://racetobais.olami.org/',color:'#c2410c'},
   {id:'ots',name:'Ohr Torah Stone',url:'https://fundraise.ots.org.il/',color:'#92400e'},
-  {id:'kolleldc',name:'Kollel DC',url:'https://kolleldc.org/',color:'#5b21b6'},
+  {id:'kolleldc',name:'Kollel DC',url:'https://kolleldc.org/',color:'#5b21b6'}
 ];
-
 let currentData={};
 let currentDate='';
-
-const di=document.getElementById('dateInput');
-
 function initApp(){
-  di.value=new Date().toISOString().split('T')[0];
+  document.getElementById('dateInput').value=new Date().toISOString().split('T')[0];
   loadLatest();
 }
-
 async function loadDate(){
-  const date=di.value;
+  const date=document.getElementById('dateInput').value;
   if(!date)return;
   currentDate=date;
   document.getElementById('loadingOverlay').style.display='flex';
@@ -243,35 +207,31 @@ async function loadDate(){
   render(date,data);
   document.getElementById('loadingOverlay').style.display='none';
 }
-
 async function loadLatest(){
   const snap=await db.ref('autoLatest').get();
   const latest=snap.val();
   if(latest&&latest.date){
-    di.value=latest.date;
+    document.getElementById('dateInput').value=latest.date;
     currentDate=latest.date;
     const rsnap=await db.ref('autoResults/'+latest.date).get();
     const data=rsnap.val()||{};
     currentData=data;
     render(latest.date,data,latest);
   } else {
-    render(di.value,{});
+    render(document.getElementById('dateInput').value,{});
   }
   document.getElementById('loadingOverlay').style.display='none';
   loadHistory();
 }
-
 function render(date,data,summary){
   const results=SITES.map(s=>({site:s,result:data[s.id]||null}));
   const tested=results.filter(r=>r.result).length;
   const passed=results.filter(r=>r.result&&r.result.status==='pass').length;
   const failed=results.filter(r=>r.result&&(r.result.status==='fail'||r.result.status==='error')).length;
   const failures=results.filter(r=>r.result&&r.result.majorFailures&&r.result.majorFailures.length>0);
-
   document.getElementById('statTotal').textContent=tested?tested+'/'+SITES.length:'—';
   document.getElementById('statPassed').textContent=tested?passed:'—';
   document.getElementById('statFailed').textContent=tested?failed:'—';
-
   if(summary&&summary.runAt){
     const t=new Date(summary.runAt);
     document.getElementById('statTime').textContent=t.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
@@ -281,46 +241,36 @@ function render(date,data,summary){
   } else {
     document.getElementById('statTime').textContent='Not run yet';
   }
-
-  const nextRun=new Date();
-  nextRun.setUTCHours(5,0,0,0);
+  const nextRun=new Date();nextRun.setUTCHours(5,0,0,0);
   if(nextRun<=new Date())nextRun.setUTCDate(nextRun.getUTCDate()+1);
-  const hrs=Math.round((nextRun-new Date())/3600000);
-  document.getElementById('statNext').textContent='in ~'+hrs+'h';
-
+  document.getElementById('statNext').textContent='in ~'+Math.round((nextRun-new Date())/3600000)+'h';
   document.getElementById('runMeta').innerHTML=tested
     ?'<div class="run-meta"><div class="dot-live"></div> Auto-runs daily at 8am Israel time · '+date+'</div>'
     :'<div class="run-meta">No data for '+date+' — runs daily at 8am Israel time</div>';
-
   const alertEl=document.getElementById('failureAlert');
   const clearEl=document.getElementById('allClear');
   if(failures.length>0){
-    alertEl.style.display='';
-    clearEl.style.display='none';
+    alertEl.style.display='';clearEl.style.display='none';
     alertEl.innerHTML='<div class="alert-box"><div class="alert-title">⚠ '+failures.length+' site'+(failures.length>1?'s':'')+' with major failures — '+date+'</div>'+
       failures.map(r=>'<div class="failure-item"><div class="failure-site">'+r.site.name+'</div><div class="failure-url">'+r.site.url+'</div>'+
         r.result.majorFailures.map(f=>'<div class="failure-issue"><span>→</span>'+f+'</div>').join('')+'</div>').join('')+'</div>';
   } else if(tested>0){
-    alertEl.style.display='none';
-    clearEl.style.display='flex';
+    alertEl.style.display='none';clearEl.style.display='flex';
   } else {
-    alertEl.style.display='none';
-    clearEl.style.display='none';
+    alertEl.style.display='none';clearEl.style.display='none';
   }
-
   const grid=document.getElementById('siteGrid');
   grid.innerHTML='';
   for(const {site,result} of results){
     const hasFail=result&&result.majorFailures&&result.majorFailures.length>0;
     const card=document.createElement('div');
     card.className='site-card'+(hasFail?' fail':result?' pass':'');
-    card.onclick=()=>goToSite(site,result);
+    card.onclick=()=>goToSite(site);
     const statusBadge=result
       ?'<span class="badge '+(hasFail?'badge-fail':'badge-pass')+'">'+(hasFail?'✗ '+result.majorFailures.length+' issue'+(result.majorFailures.length>1?'s':''):'✓ Pass')+'</span>'
       :'<span class="badge badge-muted">Not run</span>';
     const checkDots=result&&result.checks
-      ?Object.entries(result.checks).slice(0,8).map(([k,v])=>'<div class="check-dot" style="background:'+(v.pass?'#22c55e':'#ef4444')+'" title="'+k+': '+(v.pass?'pass':'fail')+'"></div>').join('')
-      :'';
+      ?Object.entries(result.checks).slice(0,8).map(([k,v])=>'<div class="check-dot" style="background:'+(v.pass?'#22c55e':'#ef4444')+'" title="'+k+': '+(v.pass?'pass':'fail')+'"></div>').join(''):'';
     const aiDesc=result&&result.aiAnalysis?result.aiAnalysis.pageDescription||'':'';
     card.innerHTML='<div class="site-head"><div>'+
       '<div style="display:flex;align-items:center;gap:6px">'+
@@ -333,12 +283,10 @@ function render(date,data,summary){
     grid.appendChild(card);
   }
 }
-
-function goToSite(site,result){
-  const date=di.value||currentDate||'';
+function goToSite(site){
+  const date=document.getElementById('dateInput').value||currentDate||'';
   window.location.href='site.html?id='+site.id+(date?'&date='+encodeURIComponent(date):'');
 }
-
 async function loadHistory(){
   const snap=await db.ref('autoSummary').limitToLast(14).get();
   const data=snap.val()||{};
@@ -348,7 +296,7 @@ async function loadHistory(){
   el.innerHTML=rows.map(([date,s])=>{
     const pass=s.passed||0;const fail=s.failed||0;const total=s.totalSites||20;
     const pct=Math.round(pass/total*100);
-    return '<div class="history-row" onclick="di.value=date;loadDate()">'+
+    return '<div class="history-row" onclick="document.getElementById('dateInput').value=''+date+'';loadDate()">'+
       '<div class="history-date">'+date+'</div>'+
       '<div class="history-bar">'+
       '<div class="h-seg" style="width:'+pct+'%;background:#22c55e40;min-width:'+(pass?4:0)+'px"></div>'+
