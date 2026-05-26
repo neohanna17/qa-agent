@@ -11,7 +11,7 @@ on:
         required: false
         default: ''
       test_type:
-        description: 'Test type: smoke or flow'
+        description: 'Test type: smoke or flow (default: smoke)'
         required: false
         default: 'smoke'
 
@@ -27,14 +27,18 @@ jobs:
       - run: npm install
       - run: npx playwright install chromium --with-deps
       - name: Run smoke tests
-        if: >-
-          (github.event_name == 'schedule' && github.event.schedule == '0 5 * * *') ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type != 'flow')
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
-          SINGLE_SITE: ${{ github.event.inputs.site_id }}
-        run: node scripts/smoke-test.js
+          SINGLE_SITE: ${{ github.event.inputs.site_id || '' }}
+          SCHEDULE: ${{ github.event.schedule || '' }}
+          TEST_TYPE: ${{ github.event.inputs.test_type || 'smoke' }}
+        run: |
+          if [ "$TEST_TYPE" = "flow" ] && [ "$SCHEDULE" != "0 5 * * *" ]; then
+            echo "Skipping smoke tests — test_type is flow"
+          else
+            node scripts/smoke-test.js
+          fi
 
   flow-test:
     name: Flow Tests
@@ -47,10 +51,14 @@ jobs:
       - run: npm install
       - run: npx playwright install chromium --with-deps
       - name: Run flow tests
-        if: >-
-          (github.event_name == 'schedule' && github.event.schedule == '0 7 * * 1') ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'flow')
         env:
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
-          SINGLE_SITE: ${{ github.event.inputs.site_id }}
-        run: node scripts/flow-test.js
+          SINGLE_SITE: ${{ github.event.inputs.site_id || '' }}
+          SCHEDULE: ${{ github.event.schedule || '' }}
+          TEST_TYPE: ${{ github.event.inputs.test_type || 'smoke' }}
+        run: |
+          if [ "$TEST_TYPE" = "flow" ] || [ "$SCHEDULE" = "0 7 * * 1" ]; then
+            node scripts/flow-test.js
+          else
+            echo "Skipping flow tests — test_type is smoke"
+          fi
