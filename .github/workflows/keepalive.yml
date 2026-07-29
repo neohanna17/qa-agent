@@ -1,0 +1,27 @@
+name: Keepalive
+
+# GitHub automatically disables scheduled workflows after 60 days with no new
+# commits to the repository. When that happens the daily QA smoke tests silently
+# stop running (this is exactly what took the agent offline). This workflow makes
+# a tiny empty commit once a month so the repo is never "inactive" for 60 days,
+# which keeps the Daily QA Smoke Tests schedule permanently enabled.
+
+on:
+  schedule:
+    - cron: '0 3 1 * *'   # 03:00 UTC on the 1st of every month (well inside the 60-day window)
+  workflow_dispatch:        # allow a manual heartbeat any time
+
+permissions:
+  contents: write           # needed to push the keepalive commit
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Push empty keepalive commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keepalive — keep scheduled workflows enabled"
+          git push
