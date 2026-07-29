@@ -31,6 +31,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
+          FIREBASE_DB_SECRET: ${{ secrets.FIREBASE_DB_SECRET }}
           SINGLE_SITE: ${{ github.event.inputs.site_id || '' }}
         run: node scripts/smoke-test.js
         if: >-
@@ -40,6 +41,7 @@ jobs:
       - name: Run flow tests
         env:
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
+          FIREBASE_DB_SECRET: ${{ secrets.FIREBASE_DB_SECRET }}
           SINGLE_SITE: ${{ github.event.inputs.site_id || '' }}
         run: node scripts/flow-test.js
         if: >-
