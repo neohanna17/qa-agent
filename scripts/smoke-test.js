@@ -24,11 +24,9 @@ const stealth = require('puppeteer-extra-plugin-stealth');
 chromium.use(stealth());
 const fs = require('fs');
 const path = require('path');
+const { fbSet } = require('./fb');
 
 const FIREBASE_URL    = (process.env.FIREBASE_DATABASE_URL || '').replace(/\/$/, '');
-// Firebase DB secret (legacy admin token). When set, writes are sent as
-// ?auth=… so they pass even though the RTDB rules deny anonymous writes.
-const FIREBASE_SECRET = process.env.FIREBASE_DB_SECRET || '';
 const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY || '';
 const SINGLE_SITE     = process.env.SINGLE_SITE || '';
 const SCREENSHOT_DIR  = '/tmp/qa-screenshots';
@@ -1692,13 +1690,8 @@ const log = (msg, type='info') => {
 };
 
 async function fbWrite(fbPath, data) {
-  const url = `${FIREBASE_URL}/${fbPath}.json` + (FIREBASE_SECRET ? `?auth=${encodeURIComponent(FIREBASE_SECRET)}` : '');
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(`Firebase [${res.status}]: ${await res.text()}`);
+  const ok = await fbSet(fbPath, data);
+  if (!ok) throw new Error(`Firebase write failed: ${fbPath}`);
 }
 
 // ─────────────────────────────────────────────────────────────────

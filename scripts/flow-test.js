@@ -22,11 +22,9 @@ const stealth = require('puppeteer-extra-plugin-stealth');
 chromium.use(stealth());
 const fs   = require('fs');
 const path = require('path');
+const { fbSet } = require('./fb');
 
 const FIREBASE_URL   = (process.env.FIREBASE_DATABASE_URL || '').replace(/\/$/, '');
-// Firebase DB secret (legacy admin token) — sent as ?auth=… so CI writes pass
-// even though the RTDB rules deny anonymous writes. No-op when unset.
-const FIREBASE_SECRET = process.env.FIREBASE_DB_SECRET || '';
 const SINGLE_SITE    = process.env.SINGLE_SITE || '';
 const SITE_TYPE      = process.env.SITE_TYPE || '';
 const SCREENSHOT_DIR = '/tmp/flow-screenshots';
@@ -360,14 +358,7 @@ function skip(name, reason) {
 }
 
 async function saveToFirebase(fbPath, data) {
-  try {
-    const url = `${FIREBASE_URL}/${fbPath}.json` + (FIREBASE_SECRET ? `?auth=${encodeURIComponent(FIREBASE_SECRET)}` : '');
-    const res = await fetch(url, {
-      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
-    });
-    if (!res.ok) console.error(`⚠️  Firebase write failed for ${fbPath}: [${res.status}] ${(await res.text()).slice(0,120)}`);
-    return res.ok;
-  } catch(e) { console.error(`⚠️  Firebase write error for ${fbPath}: ${e.message}`); return false; }
+  return fbSet(fbPath, data);
 }
 
 async function screenshot(page, label) {
