@@ -36,6 +36,7 @@ a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
 .date-input:focus{border-color:#4f46e5}
 .btn{background:#fff;border:1px solid #d1d5db;color:#374151;border-radius:7px;padding:6px 13px;font-family:inherit;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:5px}
 .btn:hover{border-color:#9ca3af;color:#111827}
+.mode-on{background:#4f46e5;color:#fff}.mode-on:hover{background:#4338ca;color:#fff}
 .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:22px}
 @media(max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
 .stat{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px}
@@ -104,6 +105,10 @@ a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}
     </div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <div class="controls" style="margin-bottom:0">
+        <div style="display:flex;border:1px solid #d1d5db;border-radius:7px;overflow:hidden">
+          <button id="modeSmoke" class="btn mode-on" style="border:0;border-radius:0" onclick="setMode('smoke')">Smoke</button>
+          <button id="modeFlow" class="btn" style="border:0;border-left:1px solid #d1d5db;border-radius:0" onclick="setMode('flow')">Flow</button>
+        </div>
         <input type="date" class="date-input" id="dateInput" />
         <button class="btn" onclick="loadDate()">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -144,6 +149,7 @@ const VALID_USERS=[
   {u:'sona@levcharity.com',p:'LevQA2025!'},
   {u:'yervand@leverage.it',p:'LevQA2025!'},
   {u:'aviva@leverage.it',p:'LevQA2025!'},
+  {u:'meir@leverage.it',p:'Meir2025'},
   {u:'admin',p:'LevQA2025!'}
 ];
 function checkAuth(){return sessionStorage.getItem(AUTH_KEY)==='ok';}
@@ -191,6 +197,20 @@ const SITES=[
 ];
 let currentData={};
 let currentDate='';
+// Smoke tests write to auto*; flow tests write to flow*. The toggle switches
+// which dataset the dashboard shows.
+let mode='smoke';
+const PATHS={
+  smoke:{results:'autoResults',latest:'autoLatest',summary:'autoSummary'},
+  flow:{results:'flowResults',latest:'flowLatest',summary:'flowSummary'}
+};
+function setMode(m){
+  if(m===mode)return;
+  mode=m;
+  document.getElementById('modeSmoke').classList.toggle('mode-on',m==='smoke');
+  document.getElementById('modeFlow').classList.toggle('mode-on',m==='flow');
+  loadLatest();
+}
 function initApp(){
   document.getElementById('dateInput').value=new Date().toISOString().split('T')[0];
   loadLatest();
@@ -200,22 +220,24 @@ async function loadDate(){
   if(!date)return;
   currentDate=date;
   document.getElementById('loadingOverlay').style.display='flex';
-  const snap=await db.ref('autoResults/'+date).get();
+  const snap=await db.ref(PATHS[mode].results+'/'+date).get();
   const data=snap.val()||{};
   currentData=data;
   render(date,data);
   document.getElementById('loadingOverlay').style.display='none';
 }
 async function loadLatest(){
-  const snap=await db.ref('autoLatest').get();
+  const snap=await db.ref(PATHS[mode].latest).get();
   const latest=snap.val();
   if(latest&&latest.date){
     document.getElementById('dateInput').value=latest.date;
     currentDate=latest.date;
-    const rsnap=await db.ref('autoResults/'+latest.date).get();
+    const rsnap=await db.ref(PATHS[mode].results+'/'+latest.date).get();
     const data=rsnap.val()||{};
     currentData=data;
-    render(latest.date,data,latest);
+    // flow stores { date, summary:{…} }; smoke stores { date, …summary }
+    const summary=latest.summary?{...latest.summary,date:latest.date}:latest;
+    render(latest.date,data,summary);
   } else {
     render(document.getElementById('dateInput').value,{});
   }
@@ -240,12 +262,18 @@ function render(date,data,summary){
   } else {
     document.getElementById('statTime').textContent='Not run yet';
   }
-  const nextRun=new Date();nextRun.setUTCHours(5,0,0,0);
-  if(nextRun<=new Date())nextRun.setUTCDate(nextRun.getUTCDate()+1);
-  document.getElementById('statNext').textContent='in ~'+Math.round((nextRun-new Date())/3600000)+'h';
+  if(mode==='flow'){
+    document.getElementById('statNext').textContent='Mondays';
+  } else {
+    const nextRun=new Date();nextRun.setUTCHours(5,0,0,0);
+    if(nextRun<=new Date())nextRun.setUTCDate(nextRun.getUTCDate()+1);
+    document.getElementById('statNext').textContent='in ~'+Math.round((nextRun-new Date())/3600000)+'h';
+  }
+  const sched=mode==='flow'?'weekly on Mondays':'daily at 8am Israel time';
+  const label=mode==='flow'?'Flow tests':'Smoke tests';
   document.getElementById('runMeta').innerHTML=tested
-    ?'<div class="run-meta"><div class="dot-live"></div> Auto-runs daily at 8am Israel time · '+date+'</div>'
-    :'<div class="run-meta">No data for '+date+' — runs daily at 8am Israel time</div>';
+    ?'<div class="run-meta"><div class="dot-live"></div> '+label+' — auto-runs '+sched+' · '+date+'</div>'
+    :'<div class="run-meta">No '+label.toLowerCase()+' data for '+date+' — runs '+sched+'</div>';
   const alertEl=document.getElementById('failureAlert');
   const clearEl=document.getElementById('allClear');
   if(failures.length>0){
@@ -264,7 +292,8 @@ function render(date,data,summary){
     const hasFail=result&&result.majorFailures&&result.majorFailures.length>0;
     const card=document.createElement('div');
     card.className='site-card'+(hasFail?' fail':result?' pass':'');
-    card.onclick=()=>goToSite(site);
+    if(mode==='smoke'){card.onclick=()=>goToSite(site);card.style.cursor='pointer';}
+    else{card.style.cursor='default';}
     const statusBadge=result
       ?'<span class="badge '+(hasFail?'badge-fail':'badge-pass')+'">'+(hasFail?'✗ '+result.majorFailures.length+' issue'+(result.majorFailures.length>1?'s':''):'✓ Pass')+'</span>'
       :'<span class="badge badge-muted">Not run</span>';
@@ -291,13 +320,13 @@ function pickDate(el){
   loadDate();
 }
 async function loadHistory(){
-  const snap=await db.ref('autoSummary').limitToLast(14).get();
+  const snap=await db.ref(PATHS[mode].summary).limitToLast(14).get();
   const data=snap.val()||{};
   const rows=Object.entries(data).reverse();
   const el=document.getElementById('historyList');
   if(rows.length===0){el.innerHTML='<div class="no-data" style="padding:16px 0">No history yet</div>';return;}
   el.innerHTML=rows.map(([date,s])=>{
-    const pass=s.passed||0;const fail=s.failed||0;const total=s.totalSites||20;
+    const pass=s.passed||0;const fail=s.failed||0;const total=s.totalSites||s.total||20;
     const pct=Math.round(pass/total*100);
     return '<div class="history-row" data-date="'+date+'" onclick="pickDate(this)">'+
       '<div class="history-date">'+date+'</div>'+
